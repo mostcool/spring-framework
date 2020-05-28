@@ -453,16 +453,19 @@ public abstract class StringUtils {
 			return inString;
 		}
 
-		StringBuilder sb = new StringBuilder(inString.length());
+		int lastCharIndex = 0;
+		char[] result = new char[inString.length()];
 		for (int i = 0; i < inString.length(); i++) {
 			char c = inString.charAt(i);
 			if (charsToDelete.indexOf(c) == -1) {
-				sb.append(c);
+				result[lastCharIndex++] = c;
 			}
 		}
-		return sb.toString();
+		if (lastCharIndex == inString.length()) {
+			return inString;
+		}
+		return new String(result, 0, lastCharIndex);
 	}
-
 
 	//---------------------------------------------------------------------
 	// Convenience methods for working with formatted Strings

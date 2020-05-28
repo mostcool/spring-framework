@@ -44,6 +44,7 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
+import javax.servlet.http.Part;
 
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -51,6 +52,7 @@ import org.springframework.http.HttpRange;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.GenericHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.server.PathContainer;
 import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.lang.Nullable;
 import org.springframework.util.CollectionUtils;
@@ -75,6 +77,8 @@ class DefaultServerRequest implements ServerRequest {
 
 	private final ServletServerHttpRequest serverHttpRequest;
 
+	private final PathContainer pathContainer;
+
 	private final Headers headers;
 
 	private final List<HttpMessageConverter<?>> messageConverters;
@@ -85,6 +89,9 @@ class DefaultServerRequest implements ServerRequest {
 
 	private final Map<String, Object> attributes;
 
+	@Nullable
+	private MultiValueMap<String, Part> parts;
+
 
 	public DefaultServerRequest(HttpServletRequest servletRequest, List<HttpMessageConverter<?>> messageConverters) {
 		this.serverHttpRequest = new ServletServerHttpRequest(servletRequest);
@@ -94,6 +101,8 @@ class DefaultServerRequest implements ServerRequest {
 		this.headers = new DefaultRequestHeaders(this.serverHttpRequest.getHeaders());
 		this.params = CollectionUtils.toMultiValueMap(new ServletParametersMap(servletRequest));
 		this.attributes = new ServletAttributesMap(servletRequest);
+
+		this.pathContainer = PathContainer.parsePath(path());
 	}
 
 	private static List<MediaType> allSupportedMediaTypes(List<HttpMessageConverter<?>> messageConverters) {
@@ -123,10 +132,14 @@ class DefaultServerRequest implements ServerRequest {
 	public String path() {
 		String path = (String) servletRequest().getAttribute(HandlerMapping.LOOKUP_PATH);
 		if (path == null) {
-			UrlPathHelper helper = new UrlPathHelper();
-			path = helper.getLookupPathForRequest(servletRequest());
+			path = UrlPathHelper.defaultInstance.getLookupPathForRequest(servletRequest());
 		}
 		return path;
+	}
+
+	@Override
+	public PathContainer pathContainer() {
+		return this.pathContainer;
 	}
 
 	@Override
@@ -229,6 +242,19 @@ class DefaultServerRequest implements ServerRequest {
 	}
 
 	@Override
+	public MultiValueMap<String, Part> multipartData() throws IOException, ServletException {
+		MultiValueMap<String, Part> result = this.parts;
+		if (result == null) {
+			result = servletRequest().getParts().stream()
+					.collect(Collectors.groupingBy(Part::getName,
+							LinkedMultiValueMap::new,
+							Collectors.toList()));
+			this.parts = result;
+		}
+		return result;
+	}
+
+	@Override
 	@SuppressWarnings("unchecked")
 	public Map<String, String> pathVariables() {
 		Map<String, String> pathVariables = (Map<String, String>)
@@ -278,62 +304,62 @@ class DefaultServerRequest implements ServerRequest {
 	 */
 	static class DefaultRequestHeaders implements Headers {
 
-		private final HttpHeaders delegate;
+		private final HttpHeaders httpHeaders;
 
-		public DefaultRequestHeaders(HttpHeaders delegate) {
-			this.delegate = delegate;
+		public DefaultRequestHeaders(HttpHeaders httpHeaders) {
+			this.httpHeaders = HttpHeaders.readOnlyHttpHeaders(httpHeaders);
 		}
 
 		@Override
 		public List<MediaType> accept() {
-			return this.delegate.getAccept();
+			return this.httpHeaders.getAccept();
 		}
 
 		@Override
 		public List<Charset> acceptCharset() {
-			return this.delegate.getAcceptCharset();
+			return this.httpHeaders.getAcceptCharset();
 		}
 
 		@Override
 		public List<Locale.LanguageRange> acceptLanguage() {
-			return this.delegate.getAcceptLanguage();
+			return this.httpHeaders.getAcceptLanguage();
 		}
 
 		@Override
 		public OptionalLong contentLength() {
-			long value = this.delegate.getContentLength();
+			long value = this.httpHeaders.getContentLength();
 			return (value != -1 ? OptionalLong.of(value) : OptionalLong.empty());
 		}
 
 		@Override
 		public Optional<MediaType> contentType() {
-			return Optional.ofNullable(this.delegate.getContentType());
+			return Optional.ofNullable(this.httpHeaders.getContentType());
 		}
 
 		@Override
 		public InetSocketAddress host() {
-			return this.delegate.getHost();
+			return this.httpHeaders.getHost();
 		}
 
 		@Override
 		public List<HttpRange> range() {
-			return this.delegate.getRange();
+			return this.httpHeaders.getRange();
 		}
 
 		@Override
 		public List<String> header(String headerName) {
-			List<String> headerValues = this.delegate.get(headerName);
+			List<String> headerValues = this.httpHeaders.get(headerName);
 			return (headerValues != null ? headerValues : Collections.emptyList());
 		}
 
 		@Override
 		public HttpHeaders asHttpHeaders() {
-			return HttpHeaders.readOnlyHttpHeaders(this.delegate);
+			return this.httpHeaders;
 		}
 
 		@Override
 		public String toString() {
-			return this.delegate.toString();
+			return this.httpHeaders.toString();
 		}
 	}
 
