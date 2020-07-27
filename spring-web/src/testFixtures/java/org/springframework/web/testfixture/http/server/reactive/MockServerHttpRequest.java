@@ -30,7 +30,6 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
@@ -64,10 +63,10 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 	private final MultiValueMap<String, HttpCookie> cookies;
 
 	@Nullable
-	private final InetSocketAddress remoteAddress;
+	private final InetSocketAddress localAddress;
 
 	@Nullable
-	private final InetSocketAddress localAddress;
+	private final InetSocketAddress remoteAddress;
 
 	@Nullable
 	private final SslInfo sslInfo;
@@ -76,15 +75,15 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 
 	private MockServerHttpRequest(String httpMethod,
 			URI uri, @Nullable String contextPath, HttpHeaders headers, MultiValueMap<String, HttpCookie> cookies,
-			@Nullable InetSocketAddress remoteAddress, @Nullable InetSocketAddress localAddress,
+			@Nullable InetSocketAddress localAddress, @Nullable InetSocketAddress remoteAddress,
 			@Nullable SslInfo sslInfo, Publisher<? extends DataBuffer> body) {
 
 		super(uri, contextPath, headers);
 		Assert.isTrue(StringUtils.hasText(httpMethod), "HTTP method is required.");
 		this.httpMethod = httpMethod;
 		this.cookies = cookies;
-		this.remoteAddress = remoteAddress;
 		this.localAddress = localAddress;
+		this.remoteAddress = remoteAddress;
 		this.sslInfo = sslInfo;
 		this.body = Flux.from(body);
 	}
@@ -103,18 +102,18 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 
 	@Override
 	@Nullable
-	public InetSocketAddress getRemoteAddress() {
-		return this.remoteAddress;
-	}
-
-	@Nullable
-	@Override
 	public InetSocketAddress getLocalAddress() {
 		return this.localAddress;
 	}
 
-	@Nullable
 	@Override
+	@Nullable
+	public InetSocketAddress getRemoteAddress() {
+		return this.remoteAddress;
+	}
+
+	@Override
+	@Nullable
 	protected SslInfo initSslInfo() {
 		return this.sslInfo;
 	}
@@ -382,8 +381,8 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 		 * @see BodyBuilder#body(String)
 		 */
 		MockServerHttpRequest build();
-
 	}
+
 
 	/**
 	 * A builder that adds a body to the request.
@@ -423,13 +422,10 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 		 * @return the built request entity
 		 */
 		MockServerHttpRequest body(String body);
-
 	}
 
 
 	private static class DefaultBodyBuilder implements BodyBuilder {
-
-		private static final DataBufferFactory BUFFER_FACTORY = new DefaultDataBufferFactory();
 
 		private final String methodValue;
 
@@ -455,11 +451,6 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 
 		DefaultBodyBuilder(String method, URI url) {
 			this.methodValue = method;
-			this.url = url;
-		}
-
-		DefaultBodyBuilder(HttpMethod httpMethod, URI url) {
-			this.methodValue = httpMethod.name();
 			this.url = url;
 		}
 
@@ -585,7 +576,9 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 
 		@Override
 		public MockServerHttpRequest body(String body) {
-			return body(Flux.just(BUFFER_FACTORY.wrap(body.getBytes(getCharset()))));
+			byte[] bytes = body.getBytes(getCharset());
+			DataBuffer buffer = DefaultDataBufferFactory.sharedInstance.wrap(bytes);
+			return body(Flux.just(buffer));
 		}
 
 		private Charset getCharset() {
@@ -597,7 +590,7 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 		public MockServerHttpRequest body(Publisher<? extends DataBuffer> body) {
 			applyCookiesIfNecessary();
 			return new MockServerHttpRequest(this.methodValue, getUrlToUse(), this.contextPath,
-					this.headers, this.cookies, this.remoteAddress, this.localAddress, this.sslInfo, body);
+					this.headers, this.cookies, this.localAddress, this.remoteAddress, this.sslInfo, body);
 		}
 
 		private void applyCookiesIfNecessary() {
@@ -610,11 +603,9 @@ public final class MockServerHttpRequest extends AbstractServerHttpRequest {
 		private URI getUrlToUse() {
 			MultiValueMap<String, String> params =
 					this.queryParamsBuilder.buildAndExpand().encode().getQueryParams();
-
 			if (!params.isEmpty()) {
 				return UriComponentsBuilder.fromUri(this.url).queryParams(params).build(true).toUri();
 			}
-
 			return this.url;
 		}
 	}
