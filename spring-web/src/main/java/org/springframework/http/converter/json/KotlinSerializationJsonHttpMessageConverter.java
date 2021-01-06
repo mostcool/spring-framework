@@ -39,11 +39,13 @@ import org.springframework.util.ConcurrentReferenceHashMap;
 import org.springframework.util.StreamUtils;
 
 /**
- * Implementation of {@link org.springframework.http.converter.HttpMessageConverter} that can read and write JSON using
+ * Implementation of {@link org.springframework.http.converter.HttpMessageConverter}
+ * that can read and write JSON using
  * <a href="https://github.com/Kotlin/kotlinx.serialization">kotlinx.serialization</a>.
  *
- * <p>This converter can be used to bind {@code @Serializable} Kotlin classes. It supports {@code application/json} and
- * {@code application/*+json} with various character sets, {@code UTF-8} being the default.
+ * <p>This converter can be used to bind {@code @Serializable} Kotlin classes.
+ * It supports {@code application/json} and {@code application/*+json} with
+ * various character sets, {@code UTF-8} being the default.
  *
  * @author Andreas Ahlenstorf
  * @author Sebastien Deleuze
@@ -80,6 +82,28 @@ public class KotlinSerializationJsonHttpMessageConverter extends AbstractGeneric
 		try {
 			serializer(clazz);
 			return true;
+		}
+		catch (Exception ex) {
+			return false;
+		}
+	}
+
+	@Override
+	public boolean canRead(Type type, @Nullable Class<?> contextClass, @Nullable MediaType mediaType) {
+		try {
+			serializer(GenericTypeResolver.resolveType(type, contextClass));
+			return canRead(mediaType);
+		}
+		catch (Exception ex) {
+			return false;
+		}
+	}
+
+	@Override
+	public boolean canWrite(@Nullable Type type, Class<?> clazz, @Nullable MediaType mediaType) {
+		try {
+			serializer(type != null ? GenericTypeResolver.resolveType(type, clazz) : clazz);
+			return canWrite(mediaType);
 		}
 		catch (Exception ex) {
 			return false;
@@ -149,6 +173,7 @@ public class KotlinSerializationJsonHttpMessageConverter extends AbstractGeneric
 	 * Tries to find a serializer that can marshall or unmarshall instances of the given type
 	 * using kotlinx.serialization. If no serializer can be found, an exception is thrown.
 	 * <p>Resolved serializers are cached and cached results are returned on successive calls.
+	 * TODO Avoid relying on throwing exception when https://github.com/Kotlin/kotlinx.serialization/pull/1164 is fixed
 	 * @param type the type to find a serializer for
 	 * @return a resolved serializer for the given type
 	 * @throws RuntimeException if no serializer supporting the given type can be found

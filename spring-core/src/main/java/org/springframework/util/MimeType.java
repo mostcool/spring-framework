@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2019 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 package org.springframework.util;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.BitSet;
@@ -104,6 +106,9 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	private final Map<String, String> parameters;
 
 	@Nullable
+	private transient Charset resolvedCharset;
+
+	@Nullable
 	private volatile String toStringValue;
 
 
@@ -138,6 +143,7 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 */
 	public MimeType(String type, String subtype, Charset charset) {
 		this(type, subtype, Collections.singletonMap(PARAM_CHARSET, charset.name()));
+		this.resolvedCharset = charset;
 	}
 
 	/**
@@ -150,6 +156,7 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 */
 	public MimeType(MimeType other, Charset charset) {
 		this(other.getType(), other.getSubtype(), addCharsetParameter(charset, other.getParameters()));
+		this.resolvedCharset = charset;
 	}
 
 	/**
@@ -179,9 +186,9 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		this.subtype = subtype.toLowerCase(Locale.ENGLISH);
 		if (!CollectionUtils.isEmpty(parameters)) {
 			Map<String, String> map = new LinkedCaseInsensitiveMap<>(parameters.size(), Locale.ENGLISH);
-			parameters.forEach((attribute, value) -> {
-				checkParameters(attribute, value);
-				map.put(attribute, value);
+			parameters.forEach((parameter, value) -> {
+				checkParameters(parameter, value);
+				map.put(parameter, value);
 			});
 			this.parameters = Collections.unmodifiableMap(map);
 		}
@@ -194,11 +201,13 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 * Copy-constructor that copies the type, subtype and parameters of the given {@code MimeType},
 	 * skipping checks performed in other constructors.
 	 * @param other the other MimeType
+	 * @since 5.3
 	 */
 	protected MimeType(MimeType other) {
 		this.type = other.type;
 		this.subtype = other.subtype;
 		this.parameters = other.parameters;
+		this.resolvedCharset = other.resolvedCharset;
 		this.toStringValue = other.toStringValue;
 	}
 
@@ -217,13 +226,14 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		}
 	}
 
-	protected void checkParameters(String attribute, String value) {
-		Assert.hasLength(attribute, "'attribute' must not be empty");
+	protected void checkParameters(String parameter, String value) {
+		Assert.hasLength(parameter, "'parameter' must not be empty");
 		Assert.hasLength(value, "'value' must not be empty");
-		checkToken(attribute);
-		if (PARAM_CHARSET.equals(attribute)) {
-			value = unquote(value);
-			Charset.forName(value);
+		checkToken(parameter);
+		if (PARAM_CHARSET.equals(parameter)) {
+			if (this.resolvedCharset == null) {
+				this.resolvedCharset = Charset.forName(unquote(value));
+			}
 		}
 		else if (!isQuotedString(value)) {
 			checkToken(value);
@@ -304,8 +314,7 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 	 */
 	@Nullable
 	public Charset getCharset() {
-		String charset = getParameter(PARAM_CHARSET);
-		return (charset != null ? Charset.forName(unquote(charset)) : null);
+		return this.resolvedCharset;
 	}
 
 	/**
@@ -393,17 +402,14 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 			if (isWildcardSubtype() || other.isWildcardSubtype()) {
 				String thisSuffix = getSubtypeSuffix();
 				String otherSuffix = other.getSubtypeSuffix();
-				if (getSubtype().equals(WILDCARD_TYPE)
-						|| other.getSubtype().equals(WILDCARD_TYPE)) {
+				if (getSubtype().equals(WILDCARD_TYPE) || other.getSubtype().equals(WILDCARD_TYPE)) {
 					return true;
 				}
 				else if (isWildcardSubtype() && thisSuffix != null) {
-					return thisSuffix.equals(other.getSubtype())
-							|| thisSuffix.equals(otherSuffix);
+					return (thisSuffix.equals(other.getSubtype()) || thisSuffix.equals(otherSuffix));
 				}
 				else if (other.isWildcardSubtype() && otherSuffix != null) {
-					return this.getSubtype().equals(otherSuffix)
-							|| otherSuffix.equals(thisSuffix);
+					return (this.getSubtype().equals(otherSuffix) || otherSuffix.equals(thisSuffix));
 				}
 			}
 		}
@@ -585,6 +591,17 @@ public class MimeType implements Comparable<MimeType>, Serializable {
 		}
 
 		return 0;
+	}
+
+	private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
+		// Rely on default serialization, just initialize state after deserialization.
+		ois.defaultReadObject();
+
+		// Initialize transient fields.
+		String charsetName = getParameter(PARAM_CHARSET);
+		if (charsetName != null) {
+			this.resolvedCharset = Charset.forName(unquote(charsetName));
+		}
 	}
 
 
