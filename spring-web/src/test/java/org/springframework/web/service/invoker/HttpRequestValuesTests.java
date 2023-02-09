@@ -17,16 +17,19 @@
 package org.springframework.web.service.invoker;
 
 import java.net.URI;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -34,11 +37,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author Rossen Stoyanchev
  */
-public class HttpRequestValuesTests {
+class HttpRequestValuesTests {
 
 	@Test
 	void defaultUri() {
-		HttpRequestValues requestValues = HttpRequestValues.builder(HttpMethod.GET).build();
+		HttpRequestValues requestValues = HttpRequestValues.builder().setHttpMethod(HttpMethod.GET).build();
 
 		assertThat(requestValues.getUri()).isNull();
 		assertThat(requestValues.getUriTemplate()).isEqualTo("");
@@ -46,23 +49,25 @@ public class HttpRequestValuesTests {
 
 	@ParameterizedTest
 	@ValueSource(strings = {"POST", "PUT", "PATCH"})
+	@SuppressWarnings("unchecked")
 	void requestParamAsFormData(String httpMethod) {
 
-		HttpRequestValues requestValues = HttpRequestValues.builder(HttpMethod.valueOf(httpMethod))
+		HttpRequestValues requestValues = HttpRequestValues.builder().setHttpMethod(HttpMethod.valueOf(httpMethod))
 				.setContentType(MediaType.APPLICATION_FORM_URLENCODED)
 				.addRequestParameter("param1", "1st value")
 				.addRequestParameter("param2", "2nd value A", "2nd value B")
 				.build();
 
 		Object body = requestValues.getBodyValue();
-		assertThat(body).isNotNull().isInstanceOf(byte[].class);
-		assertThat(new String((byte[]) body, UTF_8)).isEqualTo("param1=1st+value&param2=2nd+value+A&param2=2nd+value+B");
+		assertThat((MultiValueMap<String, String>) body).hasSize(2)
+				.containsEntry("param1", List.of("1st value"))
+				.containsEntry("param2", List.of("2nd value A", "2nd value B"));
 	}
 
 	@Test
 	void requestParamAsQueryParamsInUriTemplate() {
 
-		HttpRequestValues requestValues = HttpRequestValues.builder(HttpMethod.POST)
+		HttpRequestValues requestValues = HttpRequestValues.builder().setHttpMethod(HttpMethod.POST)
 				.setUriTemplate("/path")
 				.addRequestParameter("param1", "1st value")
 				.addRequestParameter("param2", "2nd value A", "2nd value B")
@@ -96,7 +101,7 @@ public class HttpRequestValuesTests {
 	@Test
 	void requestParamAsQueryParamsInUri() {
 
-		HttpRequestValues requestValues = HttpRequestValues.builder(HttpMethod.POST)
+		HttpRequestValues requestValues = HttpRequestValues.builder().setHttpMethod(HttpMethod.POST)
 				.setUri(URI.create("/path"))
 				.addRequestParameter("param1", "1st value")
 				.addRequestParameter("param2", "2nd value A", "2nd value B")
@@ -104,6 +109,24 @@ public class HttpRequestValuesTests {
 
 		assertThat(requestValues.getUri().toString())
 				.isEqualTo("/path?param1=1st%20value&param2=2nd%20value%20A&param2=2nd%20value%20B");
+	}
+
+	@Test
+	void requestPart() {
+		HttpHeaders entityHeaders = new HttpHeaders();
+		entityHeaders.add("foo", "bar");
+		HttpEntity<String> entity = new HttpEntity<>("body", entityHeaders);
+
+		HttpRequestValues requestValues = HttpRequestValues.builder()
+				.addRequestPart("form field", "form value")
+				.addRequestPart("entity", entity)
+				.build();
+
+		@SuppressWarnings("unchecked")
+		MultiValueMap<String, HttpEntity<?>> map = (MultiValueMap<String, HttpEntity<?>>) requestValues.getBodyValue();
+		assertThat(map).hasSize(2);
+		assertThat(map.getFirst("form field").getBody()).isEqualTo("form value");
+		assertThat(map.getFirst("entity")).isEqualTo(entity);
 	}
 
 }

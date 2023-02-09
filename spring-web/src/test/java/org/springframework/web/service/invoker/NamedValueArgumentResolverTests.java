@@ -21,15 +21,18 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.apache.groovy.util.Maps;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AliasFor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.format.support.DefaultFormattingConversionService;
 import org.springframework.lang.Nullable;
 import org.springframework.util.LinkedMultiValueMap;
@@ -53,17 +56,29 @@ class NamedValueArgumentResolverTests {
 
 	private final TestNamedValueArgumentResolver argumentResolver = new TestNamedValueArgumentResolver();
 
-	private final Service service =
-			HttpServiceProxyFactory.builder(this.client)
-					.addCustomResolver(this.argumentResolver)
-					.build()
-					.createClient(Service.class);
+	private Service service;
+
+
+	@BeforeEach
+	void setUp() throws Exception {
+		HttpServiceProxyFactory proxyFactory = HttpServiceProxyFactory.builder(this.client)
+				.customArgumentResolver(this.argumentResolver)
+				.build();
+
+		this.service = proxyFactory.createClient(Service.class);
+	}
 
 
 	@Test
 	void stringTestValue() {
 		this.service.executeString("test");
 		assertTestValue("value", "test");
+	}
+
+	@Test // gh-29095
+	void dateTestValue() {
+		this.service.executeDate(LocalDate.of(2022, 9, 16));
+		assertTestValue("value", "2022-09-16");
 	}
 
 	@Test
@@ -168,6 +183,9 @@ class NamedValueArgumentResolverTests {
 		void executeString(@TestValue String value);
 
 		@GetExchange
+		void executeDate(@TestValue @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate value);
+
+		@GetExchange
 		void execute(@TestValue Object value);
 
 		@GetExchange
@@ -220,8 +238,8 @@ class NamedValueArgumentResolverTests {
 		}
 
 		@Override
-		protected void addRequestValue(String name, String value, HttpRequestValues.Builder requestValues) {
-			this.testValues.add(name, value);
+		protected void addRequestValue(String name, Object value, MethodParameter parameter, HttpRequestValues.Builder requestValues) {
+			this.testValues.add(name, (String) value);
 		}
 	}
 

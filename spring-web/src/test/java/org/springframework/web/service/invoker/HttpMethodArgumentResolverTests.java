@@ -19,9 +19,12 @@ package org.springframework.web.service.invoker;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.http.HttpMethod;
+import org.springframework.lang.Nullable;
 import org.springframework.web.service.annotation.GetExchange;
+import org.springframework.web.service.annotation.HttpExchange;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 /**
@@ -30,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
  * @author Olga Maciaszek-Sharma
  * @author Rossen Stoyanchev
  */
-public class HttpMethodArgumentResolverTests {
+class HttpMethodArgumentResolverTests {
 
 	private final TestHttpClientAdapter client = new TestHttpClientAdapter();
 
@@ -38,9 +41,15 @@ public class HttpMethodArgumentResolverTests {
 
 
 	@Test
-	void requestMethodOverride() {
+	void httpMethodFromArgument() {
 		this.service.execute(HttpMethod.POST);
 		assertThat(getActualMethod()).isEqualTo(HttpMethod.POST);
+	}
+
+	@Test
+	void httpMethodFromAnnotation() {
+		this.service.executeHttpHead();
+		assertThat(getActualMethod()).isEqualTo(HttpMethod.HEAD);
 	}
 
 	@Test
@@ -54,11 +63,11 @@ public class HttpMethodArgumentResolverTests {
 	}
 
 	@Test
-	void ignoreNull() {
-		this.service.execute(null);
-		assertThat(getActualMethod()).isEqualTo(HttpMethod.GET);
+	void nullHttpMethod() {
+		assertThatIllegalArgumentException().isThrownBy(() -> this.service.execute(null));
 	}
 
+	@Nullable
 	private HttpMethod getActualMethod() {
 		return this.client.getRequestValues().getHttpMethod();
 	}
@@ -66,8 +75,11 @@ public class HttpMethodArgumentResolverTests {
 
 	private interface Service {
 
-		@GetExchange
+		@HttpExchange
 		void execute(HttpMethod method);
+
+		@HttpExchange(method = "HEAD")
+		void executeHttpHead();
 
 		@GetExchange
 		void executeNotHttpMethod(String test);

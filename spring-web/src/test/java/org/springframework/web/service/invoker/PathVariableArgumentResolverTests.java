@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@link PathVariableArgumentResolver}.
+ *
  * <p>For base class functionality, see {@link NamedValueArgumentResolverTests}.
  *
  * @author Olga Maciaszek-Sharma
@@ -38,8 +39,6 @@ class PathVariableArgumentResolverTests {
 	private final Service service = HttpServiceProxyFactory.builder(this.client).build().createClient(Service.class);
 
 
-	// Base class functionality should be tested in NamedValueArgumentResolverTests.
-
 	@Test
 	void pathVariable() {
 		this.service.execute("test");
@@ -48,8 +47,7 @@ class PathVariableArgumentResolverTests {
 
 	@SuppressWarnings("SameParameterValue")
 	private void assertPathVariable(String name, @Nullable String expectedValue) {
-		assertThat(this.client.getRequestValues().getUriVariables().get(name))
-				.isEqualTo(expectedValue);
+		assertThat(this.client.getRequestValues().getUriVariables().get(name)).isEqualTo(expectedValue);
 	}
 
 

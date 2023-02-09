@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ import org.springframework.util.StringUtils;
  *
  * <p><strong>WARNING</strong>: Data binding can lead to security issues by exposing
  * parts of the object graph that are not meant to be accessed or modified by
- * external clients. Therefore the design and use of data binding should be considered
+ * external clients. Therefore, the design and use of data binding should be considered
  * carefully with regard to security. For more details, please refer to the dedicated
  * sections on data binding for
  * <a href="https://docs.spring.io/spring-framework/docs/current/reference/html/web.html#mvc-ann-initbinder-model-design">Spring Web MVC</a> and
@@ -622,7 +622,7 @@ public class DataBinder implements PropertyEditorRegistry, TypeConverter {
 	//---------------------------------------------------------------------
 
 	/**
-	 * Specify a Spring 3.0 ConversionService to use for converting
+	 * Specify a {@link ConversionService} to use for converting
 	 * property values, as an alternative to JavaBeans PropertyEditors.
 	 */
 	public void setConversionService(@Nullable ConversionService conversionService) {
@@ -852,8 +852,7 @@ public class DataBinder implements PropertyEditorRegistry, TypeConverter {
 					if (pv.getValue() instanceof String) {
 						empty = !StringUtils.hasText((String) pv.getValue());
 					}
-					else if (pv.getValue() instanceof String[]) {
-						String[] values = (String[]) pv.getValue();
+					else if (pv.getValue() instanceof String[] values) {
 						empty = (values.length == 0 || !StringUtils.hasText(values[0]));
 					}
 				}
@@ -873,7 +872,7 @@ public class DataBinder implements PropertyEditorRegistry, TypeConverter {
 
 	/**
 	 * Apply given property values to the target object.
-	 * <p>Default implementation applies all of the supplied property
+	 * <p>Default implementation applies all the supplied property
 	 * values as bean property values. By default, unknown fields will
 	 * be ignored.
 	 * @param mpvs the property values to be bound (can be modified)

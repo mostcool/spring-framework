@@ -337,14 +337,14 @@ public abstract class RequestPredicates {
 		void method(Set<HttpMethod> methods);
 
 		/**
-		 * Receive notification of an path predicate.
+		 * Receive notification of a path predicate.
 		 * @param pattern the path pattern that makes up the predicate
 		 * @see RequestPredicates#path(String)
 		 */
 		void path(String pattern);
 
 		/**
-		 * Receive notification of an path extension predicate.
+		 * Receive notification of a path extension predicate.
 		 * @param extension the path extension that makes up the predicate
 		 * @see RequestPredicates#pathExtension(String)
 		 */
@@ -795,11 +795,11 @@ public abstract class RequestPredicates {
 
 		@Override
 		public void changeParser(PathPatternParser parser) {
-			if (this.left instanceof ChangePathPatternParserVisitor.Target) {
-				((ChangePathPatternParserVisitor.Target) this.left).changeParser(parser);
+			if (this.left instanceof ChangePathPatternParserVisitor.Target leftTarget) {
+				leftTarget.changeParser(parser);
 			}
-			if (this.right instanceof ChangePathPatternParserVisitor.Target) {
-				((ChangePathPatternParserVisitor.Target) this.right).changeParser(parser);
+			if (this.right instanceof ChangePathPatternParserVisitor.Target rightTarget) {
+				rightTarget.changeParser(parser);
 			}
 		}
 
@@ -841,8 +841,8 @@ public abstract class RequestPredicates {
 
 		@Override
 		public void changeParser(PathPatternParser parser) {
-			if (this.delegate instanceof ChangePathPatternParserVisitor.Target) {
-				((ChangePathPatternParserVisitor.Target) this.delegate).changeParser(parser);
+			if (this.delegate instanceof ChangePathPatternParserVisitor.Target target) {
+				target.changeParser(parser);
 			}
 		}
 
@@ -909,11 +909,11 @@ public abstract class RequestPredicates {
 
 		@Override
 		public void changeParser(PathPatternParser parser) {
-			if (this.left instanceof ChangePathPatternParserVisitor.Target) {
-				((ChangePathPatternParserVisitor.Target) this.left).changeParser(parser);
+			if (this.left instanceof ChangePathPatternParserVisitor.Target leftTarget) {
+				leftTarget.changeParser(parser);
 			}
-			if (this.right instanceof ChangePathPatternParserVisitor.Target) {
-				((ChangePathPatternParserVisitor.Target) this.right).changeParser(parser);
+			if (this.right instanceof ChangePathPatternParserVisitor.Target rightTarget) {
+				rightTarget.changeParser(parser);
 			}
 		}
 

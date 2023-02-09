@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -101,7 +101,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	void readByteChannelError(DataBufferFactory bufferFactory) throws Exception {
 		super.bufferFactory = bufferFactory;
 
-		ReadableByteChannel channel = mock(ReadableByteChannel.class);
+		ReadableByteChannel channel = mock();
 		given(channel.read(any()))
 				.willAnswer(invocation -> {
 					ByteBuffer buffer = invocation.getArgument(0);
@@ -115,7 +115,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 				DataBufferUtils.readByteChannel(() -> channel, super.bufferFactory, 3);
 
 		StepVerifier.create(result)
-				.consumeNextWith(stringConsumer("foo"))
+				.consumeNextWith(stringConsumer(""))
 				.expectError(IOException.class)
 				.verify(Duration.ofSeconds(3));
 	}
@@ -166,21 +166,19 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	void readAsynchronousFileChannelError(DataBufferFactory bufferFactory) throws Exception {
 		super.bufferFactory = bufferFactory;
 
-		AsynchronousFileChannel channel = mock(AsynchronousFileChannel.class);
+		AsynchronousFileChannel channel = mock();
 		willAnswer(invocation -> {
 			ByteBuffer byteBuffer = invocation.getArgument(0);
 			byteBuffer.put("foo".getBytes(StandardCharsets.UTF_8));
-			byteBuffer.flip();
 			long pos = invocation.getArgument(1);
 			assertThat(pos).isEqualTo(0);
-			DataBuffer dataBuffer = invocation.getArgument(2);
-			CompletionHandler<Integer, DataBuffer> completionHandler = invocation.getArgument(3);
-			completionHandler.completed(3, dataBuffer);
+			CompletionHandler<Integer, ByteBuffer> completionHandler = invocation.getArgument(3);
+			completionHandler.completed(3, byteBuffer);
 			return null;
 		}).willAnswer(invocation -> {
-			DataBuffer dataBuffer = invocation.getArgument(2);
-			CompletionHandler<Integer, DataBuffer> completionHandler = invocation.getArgument(3);
-			completionHandler.failed(new IOException(), dataBuffer);
+			ByteBuffer byteBuffer = invocation.getArgument(0);
+			CompletionHandler<Integer, ByteBuffer> completionHandler = invocation.getArgument(3);
+			completionHandler.failed(new IOException(), byteBuffer);
 			return null;
 		})
 		.given(channel).read(any(), anyLong(), any(), any());
@@ -362,7 +360,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		DataBuffer bar = stringBuffer("bar");
 		Flux<DataBuffer> flux = Flux.just(foo, bar);
 
-		WritableByteChannel channel = mock(WritableByteChannel.class);
+		WritableByteChannel channel = mock();
 		given(channel.write(any()))
 				.willAnswer(invocation -> {
 					ByteBuffer buffer = invocation.getArgument(0);
@@ -472,7 +470,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 		DataBuffer bar = stringBuffer("bar");
 		Flux<DataBuffer> flux = Flux.just(foo, bar);
 
-		AsynchronousFileChannel channel = mock(AsynchronousFileChannel.class);
+		AsynchronousFileChannel channel = mock();
 		willAnswer(invocation -> {
 			ByteBuffer buffer = invocation.getArgument(0);
 			long pos = invocation.getArgument(1);
@@ -769,8 +767,8 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	}
 
 	private static void assertReleased(DataBuffer dataBuffer) {
-		if (dataBuffer instanceof NettyDataBuffer) {
-			ByteBuf byteBuf = ((NettyDataBuffer) dataBuffer).getNativeBuffer();
+		if (dataBuffer instanceof NettyDataBuffer nettyDataBuffer) {
+			ByteBuf byteBuf = nettyDataBuffer.getNativeBuffer();
 			assertThat(byteBuf.refCnt()).isEqualTo(0);
 		}
 	}
@@ -779,7 +777,7 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 	void SPR16070(DataBufferFactory bufferFactory) throws Exception {
 		super.bufferFactory = bufferFactory;
 
-		ReadableByteChannel channel = mock(ReadableByteChannel.class);
+		ReadableByteChannel channel = mock();
 		given(channel.read(any()))
 				.willAnswer(putByte('a'))
 				.willAnswer(putByte('b'))
@@ -988,6 +986,27 @@ class DataBufferUtilsTests extends AbstractDataBufferAllocatingTests {
 
 
 		}
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void propagateContextPath(DataBufferFactory bufferFactory) throws IOException {
+		Path path = Paths.get(this.resource.getURI());
+		Path out = Files.createTempFile("data-buffer-utils-tests", ".tmp");
+
+		Flux<Void> result = DataBufferUtils.read(path, bufferFactory, 1024, StandardOpenOption.READ)
+				.transformDeferredContextual((f, ctx) -> {
+					assertThat(ctx.getOrDefault("key", "EMPTY")).isEqualTo("TEST");
+					return f;
+				})
+				.transform(f -> DataBufferUtils.write(f, out))
+				.transformDeferredContextual((f, ctx) -> {
+					assertThat(ctx.getOrDefault("key", "EMPTY")).isEqualTo("TEST");
+					return f;
+				})
+				.contextWrite(Context.of("key", "TEST"));
+
+		StepVerifier.create(result)
+				.verifyComplete();
 	}
 
 	private static class ZeroDemandSubscriber extends BaseSubscriber<DataBuffer> {

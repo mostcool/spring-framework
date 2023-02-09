@@ -16,6 +16,8 @@
 
 package org.springframework.web.service.invoker;
 
+import java.util.Optional;
+
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.core.Single;
@@ -49,14 +51,13 @@ import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
  *
  * @author Rossen Stoyanchev
  */
-public class HttpServiceMethodTests {
+class HttpServiceMethodTests {
 
 	private static final ParameterizedTypeReference<String> BODY_TYPE = new ParameterizedTypeReference<>() {};
 
+	private final TestHttpClientAdapter client = new TestHttpClientAdapter();
 
-	private final TestHttpClientAdapter clientAdapter = new TestHttpClientAdapter();
-
-	private final HttpServiceProxyFactory proxyFactory = HttpServiceProxyFactory.builder(this.clientAdapter).build();
+	private final HttpServiceProxyFactory proxyFactory = HttpServiceProxyFactory.builder(this.client).build();
 
 
 	@Test
@@ -90,6 +91,8 @@ public class HttpServiceMethodTests {
 		Mono<ResponseEntity<Flux<String>>> fluxEntity= service.getFluxEntity();
 		StepVerifier.create(fluxEntity.flatMapMany(HttpEntity::getBody)).expectNext("request", "To", "Entity", "Flux").verifyComplete();
 		verifyClientInvocation("requestToEntityFlux", BODY_TYPE);
+
+		assertThat(service.getDefaultMethodValue()).isEqualTo("default value");
 	}
 
 	@Test
@@ -120,7 +123,6 @@ public class HttpServiceMethodTests {
 
 	@Test
 	void blockingService() {
-
 		BlockingService service = this.proxyFactory.createClient(BlockingService.class);
 
 		service.execute();
@@ -131,6 +133,9 @@ public class HttpServiceMethodTests {
 		String body = service.getBody();
 		assertThat(body).isEqualTo("requestToBody");
 
+		Optional<String> optional = service.getBodyOptional();
+		assertThat(optional).contains("requestToBody");
+
 		ResponseEntity<String> entity = service.getEntity();
 		assertThat(entity.getBody()).isEqualTo("requestToEntity");
 
@@ -140,12 +145,11 @@ public class HttpServiceMethodTests {
 
 	@Test
 	void methodAnnotatedService() {
-
 		MethodLevelAnnotatedService service = this.proxyFactory.createClient(MethodLevelAnnotatedService.class);
 
 		service.performGet();
 
-		HttpRequestValues requestValues = this.clientAdapter.getRequestValues();
+		HttpRequestValues requestValues = this.client.getRequestValues();
 		assertThat(requestValues.getHttpMethod()).isEqualTo(HttpMethod.GET);
 		assertThat(requestValues.getUriTemplate()).isEqualTo("");
 		assertThat(requestValues.getHeaders().getContentType()).isNull();
@@ -153,7 +157,7 @@ public class HttpServiceMethodTests {
 
 		service.performPost();
 
-		requestValues = this.clientAdapter.getRequestValues();
+		requestValues = this.client.getRequestValues();
 		assertThat(requestValues.getHttpMethod()).isEqualTo(HttpMethod.POST);
 		assertThat(requestValues.getUriTemplate()).isEqualTo("/url");
 		assertThat(requestValues.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
@@ -162,12 +166,15 @@ public class HttpServiceMethodTests {
 
 	@Test
 	void typeAndMethodAnnotatedService() {
+		HttpServiceProxyFactory proxyFactory = HttpServiceProxyFactory.builder(this.client)
+				.embeddedValueResolver(value -> (value.equals("${baseUrl}") ? "/base" : value))
+				.build();
 
-		MethodLevelAnnotatedService service = this.proxyFactory.createClient(TypeAndMethodLevelAnnotatedService.class);
+		MethodLevelAnnotatedService service = proxyFactory.createClient(TypeAndMethodLevelAnnotatedService.class);
 
 		service.performGet();
 
-		HttpRequestValues requestValues = this.clientAdapter.getRequestValues();
+		HttpRequestValues requestValues = this.client.getRequestValues();
 		assertThat(requestValues.getHttpMethod()).isEqualTo(HttpMethod.GET);
 		assertThat(requestValues.getUriTemplate()).isEqualTo("/base");
 		assertThat(requestValues.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_CBOR);
@@ -175,7 +182,7 @@ public class HttpServiceMethodTests {
 
 		service.performPost();
 
-		requestValues = this.clientAdapter.getRequestValues();
+		requestValues = this.client.getRequestValues();
 		assertThat(requestValues.getHttpMethod()).isEqualTo(HttpMethod.POST);
 		assertThat(requestValues.getUriTemplate()).isEqualTo("/base/url");
 		assertThat(requestValues.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
@@ -183,8 +190,8 @@ public class HttpServiceMethodTests {
 	}
 
 	private void verifyClientInvocation(String methodName, @Nullable ParameterizedTypeReference<?> expectedBodyType) {
-		assertThat((this.clientAdapter.getInvokedMethodName())).isEqualTo(methodName);
-		assertThat(this.clientAdapter.getBodyType()).isEqualTo(expectedBodyType);
+		assertThat(this.client.getInvokedMethodName()).isEqualTo(methodName);
+		assertThat(this.client.getBodyType()).isEqualTo(expectedBodyType);
 	}
 
 
@@ -211,6 +218,10 @@ public class HttpServiceMethodTests {
 
 		@GetExchange
 		Mono<ResponseEntity<Flux<String>>> getFluxEntity();
+
+		default String getDefaultMethodValue() {
+			return "default value";
+		}
 	}
 
 
@@ -253,6 +264,9 @@ public class HttpServiceMethodTests {
 		String getBody();
 
 		@GetExchange
+		Optional<String> getBodyOptional();
+
+		@GetExchange
 		ResponseEntity<Void> getVoidEntity();
 
 		@GetExchange
@@ -273,7 +287,7 @@ public class HttpServiceMethodTests {
 
 
 	@SuppressWarnings("unused")
-	@HttpExchange(url = "/base", contentType = APPLICATION_CBOR_VALUE, accept = APPLICATION_CBOR_VALUE)
+	@HttpExchange(url = "${baseUrl}", contentType = APPLICATION_CBOR_VALUE, accept = APPLICATION_CBOR_VALUE)
 	private interface TypeAndMethodLevelAnnotatedService extends MethodLevelAnnotatedService {
 	}
 

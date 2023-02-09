@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
  *
  * @author Rossen Stoyanchev
  */
-public class RequestBodyArgumentResolverTests {
+class RequestBodyArgumentResolverTests {
 
 	private final TestHttpClientAdapter client = new TestHttpClientAdapter();
 

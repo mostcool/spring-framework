@@ -78,6 +78,21 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 	}
 
 	@Test
+	void replaceWrappedInstance() {
+		GetterBean target = new GetterBean();
+		BeanWrapperImpl accessor = createAccessor(target);
+		accessor.setPropertyValue("name", "tom");
+		assertThat(target.getAliasedName()).isEqualTo("tom");
+		assertThat(accessor.getPropertyValue("aliasedName")).isEqualTo("tom");
+
+		target = new GetterBean();
+		accessor.setWrappedInstance(target);
+		accessor.setPropertyValue("name", "tom");
+		assertThat(target.getAliasedName()).isEqualTo("tom");
+		assertThat(accessor.getPropertyValue("aliasedName")).isEqualTo("tom");
+	}
+
+	@Test
 	void setValidAndInvalidPropertyValuesShouldContainExceptionDetails() {
 		TestBean target = new TestBean();
 		String newName = "tony";
@@ -154,6 +169,16 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 	}
 
 	@Test
+	void setterOverload() {
+		SetterOverload target = new SetterOverload();
+		BeanWrapper accessor = createAccessor(target);
+		accessor.setPropertyValue("object", "a String");
+		assertThat(target.value).isEqualTo("a String");
+		assertThat(target.getObject()).isEqualTo("a String");
+		assertThat(accessor.getPropertyValue("object")).isEqualTo("a String");
+	}
+
+	@Test
 	void propertyDescriptors() throws Exception {
 		TestBean target = new TestBean();
 		target.setSpouse(new TestBean());
@@ -206,6 +231,10 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 		assertThat(accessor.isReadableProperty("inputStream")).isFalse();
 		assertThat(accessor.isReadableProperty("filename")).isTrue();
 		assertThat(accessor.isReadableProperty("description")).isTrue();
+
+		accessor = createAccessor(new ActiveResource());
+
+		assertThat(accessor.isReadableProperty("resource")).isTrue();
 	}
 
 	@Test
@@ -344,6 +373,37 @@ class BeanWrapperTests extends AbstractPropertyAccessorTests {
 
 		public Integer getObject() {
 			return (this.value != null ? this.value.length() : null);
+		}
+	}
+
+
+	public static class SetterOverload {
+
+		public String value;
+
+		public void setObject(Integer length) {
+			this.value = length.toString();
+		}
+
+		public void setObject(String object) {
+			this.value = object;
+		}
+
+		public String getObject() {
+			return this.value;
+		}
+	}
+
+
+	@SuppressWarnings("try")
+	public static class ActiveResource implements AutoCloseable {
+
+		public ActiveResource getResource() {
+			return this;
+		}
+
+		@Override
+		public void close() throws Exception {
 		}
 	}
 

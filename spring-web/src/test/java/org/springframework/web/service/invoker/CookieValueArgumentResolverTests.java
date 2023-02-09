@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link CookieValueArgumentResolver}.
+ *
  * <p>For base class functionality, see {@link NamedValueArgumentResolverTests}.
  *
  * @author Rossen Stoyanchev
@@ -38,8 +39,6 @@ class CookieValueArgumentResolverTests {
 
 	private final Service service = HttpServiceProxyFactory.builder(this.client).build().createClient(Service.class);
 
-
-	// Base class functionality should be tested in NamedValueArgumentResolverTests.
 
 	@Test
 	void cookieValue() {
