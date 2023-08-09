@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2021 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import org.springframework.context.event.ApplicationListenerMethodAdapter;
 import org.springframework.context.event.EventListener;
 import org.springframework.context.event.GenericApplicationListener;
 import org.springframework.core.annotation.AnnotatedElementUtils;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 
 /**
@@ -63,13 +62,13 @@ public class TransactionalApplicationListenerMethodAdapter extends ApplicationLi
 	 */
 	public TransactionalApplicationListenerMethodAdapter(String beanName, Class<?> targetClass, Method method) {
 		super(beanName, targetClass, method);
-		TransactionalEventListener ann =
+		TransactionalEventListener eventAnn =
 				AnnotatedElementUtils.findMergedAnnotation(method, TransactionalEventListener.class);
-		if (ann == null) {
+		if (eventAnn == null) {
 			throw new IllegalStateException("No TransactionalEventListener annotation found on method: " + method);
 		}
-		this.annotation = ann;
-		this.transactionPhase = ann.phase();
+		this.annotation = eventAnn;
+		this.transactionPhase = eventAnn.phase();
 	}
 
 
@@ -87,10 +86,10 @@ public class TransactionalApplicationListenerMethodAdapter extends ApplicationLi
 
 	@Override
 	public void onApplicationEvent(ApplicationEvent event) {
-		if (TransactionSynchronizationManager.isSynchronizationActive() &&
-				TransactionSynchronizationManager.isActualTransactionActive()) {
-			TransactionSynchronizationManager.registerSynchronization(
-					new TransactionalApplicationListenerSynchronization<>(event, this, this.callbacks));
+		if (TransactionalApplicationListenerSynchronization.register(event, this, this.callbacks)) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Registered transaction synchronization for " + event);
+			}
 		}
 		else if (this.annotation.fallbackExecution()) {
 			if (this.annotation.phase() == TransactionPhase.AFTER_ROLLBACK && logger.isWarnEnabled()) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -197,8 +197,22 @@ public class ClassPathBeanDefinitionScannerTests {
 		context.registerBeanDefinition("stubFooDao", new RootBeanDefinition(TestBean.class));
 		ClassPathBeanDefinitionScanner scanner = new ClassPathBeanDefinitionScanner(context);
 		scanner.setIncludeAnnotationConfig(false);
+
 		// should not fail!
 		scanner.scan(BASE_PACKAGE);
+	}
+
+	@Test
+	public void testSimpleScanWithDefaultFiltersAndOverridingBeanNotAllowed() {
+		GenericApplicationContext context = new GenericApplicationContext();
+		context.getDefaultListableBeanFactory().setAllowBeanDefinitionOverriding(false);
+		context.registerBeanDefinition("stubFooDao", new RootBeanDefinition(TestBean.class));
+		ClassPathBeanDefinitionScanner scanner = new ClassPathBeanDefinitionScanner(context);
+		scanner.setIncludeAnnotationConfig(false);
+
+		assertThatIllegalStateException().isThrownBy(() -> scanner.scan(BASE_PACKAGE))
+				.withMessageContaining("stubFooDao")
+				.withMessageContaining(StubFooDao.class.getName());
 	}
 
 	@Test
@@ -207,10 +221,10 @@ public class ClassPathBeanDefinitionScannerTests {
 		ClassPathBeanDefinitionScanner scanner = new ClassPathBeanDefinitionScanner(context);
 		scanner.setIncludeAnnotationConfig(false);
 		scanner.scan("org.springframework.context.annotation3");
-		assertThatIllegalStateException().isThrownBy(() ->
-				scanner.scan(BASE_PACKAGE))
-			.withMessageContaining("stubFooDao")
-			.withMessageContaining(StubFooDao.class.getName());
+
+		assertThatIllegalStateException().isThrownBy(() -> scanner.scan(BASE_PACKAGE))
+				.withMessageContaining("stubFooDao")
+				.withMessageContaining(StubFooDao.class.getName());
 	}
 
 	@Test
@@ -267,11 +281,10 @@ public class ClassPathBeanDefinitionScannerTests {
 		ClassPathBeanDefinitionScanner scanner = new ClassPathBeanDefinitionScanner(context);
 		scanner.setIncludeAnnotationConfig(false);
 		scanner.scan("org.springframework.context.annotation2");
-		assertThatIllegalStateException().isThrownBy(() ->
-				scanner.scan(BASE_PACKAGE))
-			.withMessageContaining("myNamedDao")
-			.withMessageContaining(NamedStubDao.class.getName())
-			.withMessageContaining(NamedStubDao2.class.getName());
+		assertThatIllegalStateException().isThrownBy(() -> scanner.scan(BASE_PACKAGE))
+				.withMessageContaining("myNamedDao")
+				.withMessageContaining(NamedStubDao.class.getName())
+				.withMessageContaining(NamedStubDao2.class.getName());
 	}
 
 	@Test

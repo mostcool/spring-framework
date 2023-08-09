@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -149,8 +149,8 @@ public abstract class AnnotationUtils {
 	 * @since 5.2
 	 * @see #isCandidateClass(Class, String)
 	 */
-	public static boolean isCandidateClass(Class<?> clazz, Class<? extends Annotation> annotationType) {
-		return isCandidateClass(clazz, annotationType.getName());
+	public static boolean isCandidateClass(Class<?> clazz, @Nullable Class<? extends Annotation> annotationType) {
+		return (annotationType != null && isCandidateClass(clazz, annotationType.getName()));
 	}
 
 	/**
@@ -1011,7 +1011,7 @@ public abstract class AnnotationUtils {
 		}
 		if (value instanceof Annotation[] annotations) {
 			Annotation[] synthesized = (Annotation[]) Array.newInstance(
-					annotations.getClass().getComponentType(), annotations.length);
+					annotations.getClass().componentType(), annotations.length);
 			for (int i = 0; i < annotations.length; i++) {
 				synthesized[i] = MergedAnnotation.from(annotatedElement, annotations[i]).synthesize();
 			}
@@ -1292,7 +1292,7 @@ public abstract class AnnotationUtils {
 			return annotations;
 		}
 		Annotation[] synthesized = (Annotation[]) Array.newInstance(
-				annotations.getClass().getComponentType(), annotations.length);
+				annotations.getClass().componentType(), annotations.length);
 		for (int i = 0; i < annotations.length; i++) {
 			synthesized[i] = synthesizeAnnotation(annotations[i], annotatedElement);
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,10 +43,10 @@ import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.aot.ApplicationContextAotGenerator;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.SpringProperties;
 import org.springframework.core.annotation.MergedAnnotation;
 import org.springframework.core.annotation.MergedAnnotations;
 import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
-import org.springframework.core.log.LogMessage;
 import org.springframework.javapoet.ClassName;
 import org.springframework.test.context.BootstrapUtils;
 import org.springframework.test.context.ContextLoadException;
@@ -57,6 +57,7 @@ import org.springframework.test.context.TestContextBootstrapper;
 import org.springframework.util.Assert;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.util.StringUtils;
 
 import static org.springframework.aot.hint.MemberCategory.INVOKE_DECLARED_CONSTRUCTORS;
 import static org.springframework.aot.hint.MemberCategory.INVOKE_PUBLIC_METHODS;
@@ -71,7 +72,25 @@ import static org.springframework.aot.hint.MemberCategory.INVOKE_PUBLIC_METHODS;
  */
 public class TestContextAotGenerator {
 
+	/**
+	 * JVM system property used to set the {@code failOnError} flag: {@value}.
+	 * <p>The {@code failOnError} flag controls whether errors encountered during
+	 * AOT processing in the <em>Spring TestContext Framework</em> should result
+	 * in an exception that fails the overall process.
+	 * <p>Defaults to {@code true}.
+	 * <p>Supported values include {@code true} or {@code false}, ignoring case.
+	 * For example, the default may be changed to {@code false} by supplying
+	 * the following JVM system property via the command line.
+	 * <pre style="code">-Dspring.test.aot.processing.failOnError=false</pre>
+	 * <p>May alternatively be configured via the
+	 * {@link org.springframework.core.SpringProperties SpringProperties}
+	 * mechanism.
+	 * @since 6.1
+	 */
+	public static final String FAIL_ON_ERROR_PROPERTY_NAME = "spring.test.aot.processing.failOnError";
+
 	private static final Log logger = LogFactory.getLog(TestContextAotGenerator.class);
+
 
 	private final ApplicationContextAotGenerator aotGenerator = new ApplicationContextAotGenerator();
 
@@ -86,11 +105,14 @@ public class TestContextAotGenerator {
 
 	private final RuntimeHints runtimeHints;
 
+	final boolean failOnError;
+
 
 	/**
 	 * Create a new {@link TestContextAotGenerator} that uses the supplied
 	 * {@link GeneratedFiles}.
 	 * @param generatedFiles the {@code GeneratedFiles} to use
+	 * @see #TestContextAotGenerator(GeneratedFiles, RuntimeHints)
 	 */
 	public TestContextAotGenerator(GeneratedFiles generatedFiles) {
 		this(generatedFiles, new RuntimeHints());
@@ -99,13 +121,31 @@ public class TestContextAotGenerator {
 	/**
 	 * Create a new {@link TestContextAotGenerator} that uses the supplied
 	 * {@link GeneratedFiles} and {@link RuntimeHints}.
+	 * <p>This constructor looks up the value of the {@code failOnError} flag via
+	 * the {@value #FAIL_ON_ERROR_PROPERTY_NAME} property, defaulting to
+	 * {@code true} if the property is not set.
 	 * @param generatedFiles the {@code GeneratedFiles} to use
 	 * @param runtimeHints the {@code RuntimeHints} to use
+	 * @see #TestContextAotGenerator(GeneratedFiles, RuntimeHints, boolean)
 	 */
 	public TestContextAotGenerator(GeneratedFiles generatedFiles, RuntimeHints runtimeHints) {
+		this(generatedFiles, runtimeHints, getFailOnErrorFlag());
+	}
+
+	/**
+	 * Create a new {@link TestContextAotGenerator} that uses the supplied
+	 * {@link GeneratedFiles}, {@link RuntimeHints}, and {@code failOnError} flag.
+	 * @param generatedFiles the {@code GeneratedFiles} to use
+	 * @param runtimeHints the {@code RuntimeHints} to use
+	 * @param failOnError {@code true} if errors encountered during AOT processing
+	 * should result in an exception that fails the overall process
+	 * @since 6.1
+	 */
+	public TestContextAotGenerator(GeneratedFiles generatedFiles, RuntimeHints runtimeHints, boolean failOnError) {
 		this.testRuntimeHintsRegistrars = AotServices.factories().load(TestRuntimeHintsRegistrar.class);
 		this.generatedFiles = generatedFiles;
 		this.runtimeHints = runtimeHints;
+		this.failOnError = failOnError;
 	}
 
 
@@ -195,8 +235,10 @@ public class TestContextAotGenerator {
 		ClassLoader classLoader = getClass().getClassLoader();
 		MultiValueMap<ClassName, Class<?>> initializerClassMappings = new LinkedMultiValueMap<>();
 		mergedConfigMappings.forEach((mergedConfig, testClasses) -> {
-			logger.debug(LogMessage.format("Generating AOT artifacts for test classes %s",
-					testClasses.stream().map(Class::getName).toList()));
+			if (logger.isDebugEnabled()) {
+				logger.debug("Generating AOT artifacts for test classes " +
+						testClasses.stream().map(Class::getName).toList());
+			}
 			this.mergedConfigRuntimeHints.registerHints(this.runtimeHints, mergedConfig, classLoader);
 			try {
 				// Use first test class discovered for a given unique MergedContextConfiguration.
@@ -209,8 +251,20 @@ public class TestContextAotGenerator {
 				generationContext.writeGeneratedContent();
 			}
 			catch (Exception ex) {
-				logger.warn(LogMessage.format("Failed to generate AOT artifacts for test classes %s",
-						testClasses.stream().map(Class::getName).toList()), ex);
+				if (this.failOnError) {
+					throw new TestContextAotException("Failed to generate AOT artifacts for test classes " +
+							testClasses.stream().map(Class::getName).toList(), ex);
+				}
+				if (logger.isDebugEnabled()) {
+					logger.debug("Failed to generate AOT artifacts for test classes " +
+							testClasses.stream().map(Class::getName).toList(), ex);
+				}
+				else if (logger.isWarnEnabled()) {
+					logger.warn("""
+							Failed to generate AOT artifacts for test classes %s. \
+							Enable DEBUG logging to view the stack trace. %s"""
+								.formatted(testClasses.stream().map(Class::getName).toList(), ex));
+				}
 			}
 		});
 		return initializerClassMappings;
@@ -295,8 +349,8 @@ public class TestContextAotGenerator {
 
 	DefaultGenerationContext createGenerationContext(Class<?> testClass) {
 		ClassNameGenerator classNameGenerator = new ClassNameGenerator(ClassName.get(testClass));
-		DefaultGenerationContext generationContext =
-				new DefaultGenerationContext(classNameGenerator, this.generatedFiles, this.runtimeHints);
+		TestContextGenerationContext generationContext =
+				new TestContextGenerationContext(classNameGenerator, this.generatedFiles, this.runtimeHints);
 		return generationContext.withName(nextTestContextId());
 	}
 
@@ -337,6 +391,14 @@ public class TestContextAotGenerator {
 
 	private void registerDeclaredConstructors(Class<?> type) {
 		this.runtimeHints.reflection().registerType(type, INVOKE_DECLARED_CONSTRUCTORS);
+	}
+
+	private static boolean getFailOnErrorFlag() {
+		String failOnError = SpringProperties.getProperty(FAIL_ON_ERROR_PROPERTY_NAME);
+		if (StringUtils.hasText(failOnError)) {
+			return Boolean.parseBoolean(failOnError.trim());
+		}
+		return true;
 	}
 
 }

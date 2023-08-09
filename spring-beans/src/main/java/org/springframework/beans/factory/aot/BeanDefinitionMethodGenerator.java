@@ -78,7 +78,7 @@ class BeanDefinitionMethodGenerator {
 			List<BeanRegistrationAotContribution> aotContributions) {
 
 		RootBeanDefinition mbd = registeredBean.getMergedBeanDefinition();
-		if (mbd.getInstanceSupplier() != null) {
+		if (mbd.getInstanceSupplier() != null && aotContributions.isEmpty()) {
 			throw new IllegalArgumentException("Code generation is not supported for bean definitions declaring an instance supplier callback : " + mbd);
 		}
 		this.methodGeneratorFactory = methodGeneratorFactory;
@@ -90,8 +90,7 @@ class BeanDefinitionMethodGenerator {
 
 
 	/**
-	 * Generate the method that returns the {@link BeanDefinition} to be
-	 * registered.
+	 * Generate the method that returns the {@link BeanDefinition} to be registered.
 	 * @param generationContext the generation context
 	 * @param beanRegistrationsCode the bean registrations code
 	 * @return a reference to the generated method.
@@ -100,8 +99,7 @@ class BeanDefinitionMethodGenerator {
 			BeanRegistrationsCode beanRegistrationsCode) {
 
 		registerRuntimeHintsIfNecessary(generationContext.getRuntimeHints());
-		BeanRegistrationCodeFragments codeFragments = getCodeFragments(generationContext,
-				beanRegistrationsCode);
+		BeanRegistrationCodeFragments codeFragments = getCodeFragments(generationContext, beanRegistrationsCode);
 		ClassName target = codeFragments.getTarget(this.registeredBean, this.constructorOrFactoryMethod);
 		if (isWritablePackageName(target)) {
 			GeneratedClass generatedClass = lookupGeneratedClass(generationContext, target);
@@ -138,7 +136,7 @@ class BeanDefinitionMethodGenerator {
 		ClassName topLevelClassName = target.topLevelClassName();
 		GeneratedClass generatedClass = generationContext.getGeneratedClasses()
 				.getOrAddForFeatureComponent("BeanDefinitions", topLevelClassName, type -> {
-					type.addJavadoc("Bean definitions for {@link $T}", topLevelClassName);
+					type.addJavadoc("Bean definitions for {@link $T}.", topLevelClassName);
 					type.addModifiers(Modifier.PUBLIC);
 				});
 
@@ -152,14 +150,14 @@ class BeanDefinitionMethodGenerator {
 		GeneratedClass tmp = generatedClass;
 		for (String nameToProcess : namesToProcess) {
 			currentTargetClassName = currentTargetClassName.nestedClass(nameToProcess);
-			tmp = createInnerClass(tmp, nameToProcess + "__BeanDefinitions", currentTargetClassName);
+			tmp = createInnerClass(tmp, nameToProcess, currentTargetClassName);
 		}
 		return tmp;
 	}
 
 	private static GeneratedClass createInnerClass(GeneratedClass generatedClass, String name, ClassName target) {
 		return generatedClass.getOrAdd(name, type -> {
-			type.addJavadoc("Bean definitions for {@link $T}", target);
+			type.addJavadoc("Bean definitions for {@link $T}.", target);
 			type.addModifiers(Modifier.PUBLIC, Modifier.STATIC);
 		});
 	}
@@ -186,8 +184,8 @@ class BeanDefinitionMethodGenerator {
 		this.aotContributions.forEach(aotContribution -> aotContribution.applyTo(generationContext, codeGenerator));
 
 		return generatedMethods.add("getBeanDefinition", method -> {
-			method.addJavadoc("Get the $L definition for '$L'",
-					(!this.registeredBean.isInnerBean()) ? "bean" : "inner-bean",
+			method.addJavadoc("Get the $L definition for '$L'.",
+					(this.registeredBean.isInnerBean() ? "inner-bean" : "bean"),
 					getName());
 			method.addModifiers(modifier, Modifier.STATIC);
 			method.returns(BeanDefinition.class);
@@ -214,9 +212,9 @@ class BeanDefinitionMethodGenerator {
 
 	private String getSimpleBeanName(String beanName) {
 		int lastDot = beanName.lastIndexOf('.');
-		beanName = (lastDot != -1) ? beanName.substring(lastDot + 1) : beanName;
+		beanName = (lastDot != -1 ? beanName.substring(lastDot + 1) : beanName);
 		int lastDollar = beanName.lastIndexOf('$');
-		beanName = (lastDollar != -1) ? beanName.substring(lastDollar + 1) : beanName;
+		beanName = (lastDollar != -1 ? beanName.substring(lastDollar + 1) : beanName);
 		return StringUtils.uncapitalize(beanName);
 	}
 

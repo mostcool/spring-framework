@@ -37,9 +37,9 @@ import org.springframework.r2dbc.core.binding.BindMarkersFactory;
 import org.springframework.util.Assert;
 
 /**
- * A non-blocking, reactive client for performing database calls with
- * Reactive Streams back pressure. Provides a higher level, common API over
- * R2DBC client libraries.
+ * A non-blocking, reactive client for performing database calls with Reactive Streams
+ * back pressure. Provides a higher level, common API over R2DBC client libraries.
+ * Propagates {@link org.springframework.dao.DataAccessException} variants for errors.
  *
  * <p>Use the static factory method {@link #create(ConnectionFactory)} or obtain
  * a {@linkplain DatabaseClient#builder() builder} to create an instance.
@@ -84,7 +84,7 @@ public interface DatabaseClient extends ConnectionAccessor {
 	 * bind markers or named parameters (e.g. {@literal :foo, :bar}) when
 	 * {@link NamedParameterExpander} is enabled.
 	 * <p>Accepts {@link PreparedOperation} as SQL and binding {@link Supplier}.
-	 * <p>{code DatabaseClient} implementations should defer the resolution of
+	 * <p>{@code DatabaseClient} implementations should defer the resolution of
 	 * the SQL string as much as possible, ideally up to the point where a
 	 * {@code Subscription} happens. This is the case for the default implementation.
 	 * @param sqlSupplier a supplier for the SQL statement

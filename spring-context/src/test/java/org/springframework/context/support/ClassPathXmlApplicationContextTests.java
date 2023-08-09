@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -154,8 +154,8 @@ public class ClassPathXmlApplicationContextTests {
 			ByteArrayOutputStream baos = new ByteArrayOutputStream();
 			ex.printStackTrace(new PrintStream(baos));
 			String dump = FileCopyUtils.copyToString(new InputStreamReader(new ByteArrayInputStream(baos.toByteArray())));
-			assertThat(dump.contains("someMessageSource")).isTrue();
-			assertThat(dump.contains("useCodeAsDefaultMessage")).isTrue();
+			assertThat(dump).contains("someMessageSource");
+			assertThat(dump).contains("useCodeAsDefaultMessage");
 		}
 		catch (IOException ioex) {
 			throw new IllegalStateException(ioex);
@@ -166,9 +166,9 @@ public class ClassPathXmlApplicationContextTests {
 	void contextWithInvalidLazyClass() {
 		ClassPathXmlApplicationContext ctx = new ClassPathXmlApplicationContext(INVALID_CLASS_CONTEXT, getClass());
 		assertThat(ctx.containsBean("someMessageSource")).isTrue();
-		assertThatExceptionOfType(CannotLoadBeanClassException.class).isThrownBy(() ->
-				ctx.getBean("someMessageSource"))
-			.satisfies(ex -> assertThat(ex.contains(ClassNotFoundException.class)).isTrue());
+		assertThatExceptionOfType(CannotLoadBeanClassException.class)
+				.isThrownBy(() -> ctx.getBean("someMessageSource"))
+				.withCauseExactlyInstanceOf(ClassNotFoundException.class);
 		ctx.close();
 	}
 
@@ -176,8 +176,7 @@ public class ClassPathXmlApplicationContextTests {
 	void contextWithClassNameThatContainsPlaceholder() {
 		ClassPathXmlApplicationContext ctx = new ClassPathXmlApplicationContext(CLASS_WITH_PLACEHOLDER_CONTEXT, getClass());
 		assertThat(ctx.containsBean("someMessageSource")).isTrue();
-		boolean condition = ctx.getBean("someMessageSource") instanceof StaticMessageSource;
-		assertThat(condition).isTrue();
+		assertThat(ctx.getBean("someMessageSource")).isInstanceOf(StaticMessageSource.class);
 		ctx.close();
 	}
 
@@ -223,11 +222,12 @@ public class ClassPathXmlApplicationContextTests {
 		ClassPathXmlApplicationContext ctx = new ClassPathXmlApplicationContext(CONTEXT_WILDCARD);
 		Service service = ctx.getBean("service", Service.class);
 		assertThat(service.getResources()).containsExactlyInAnyOrder(contextA, contextB, contextC);
+		assertThat(service.getResourceSet()).containsExactlyInAnyOrder(contextA, contextB, contextC);
 		ctx.close();
 	}
 
 	@Test
-	void childWithProxy() throws Exception {
+	void childWithProxy() {
 		ClassPathXmlApplicationContext ctx = new ClassPathXmlApplicationContext(CONTEXT_WILDCARD);
 		ClassPathXmlApplicationContext child = new ClassPathXmlApplicationContext(
 				new String[] {CHILD_WITH_PROXY_CONTEXT}, ctx);
@@ -338,8 +338,7 @@ public class ClassPathXmlApplicationContextTests {
 		};
 		ResourceTestBean resource1 = (ResourceTestBean) ctx.getBean("resource1");
 		ResourceTestBean resource2 = (ResourceTestBean) ctx.getBean("resource2");
-		boolean condition = resource1.getResource() instanceof ClassPathResource;
-		assertThat(condition).isTrue();
+		assertThat(resource1.getResource()).isInstanceOf(ClassPathResource.class);
 		StringWriter writer = new StringWriter();
 		FileCopyUtils.copy(new InputStreamReader(resource1.getResource().getInputStream()), writer);
 		assertThat(writer.toString()).isEqualTo("contexttest");

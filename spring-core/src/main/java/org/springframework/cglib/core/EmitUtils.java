@@ -347,7 +347,7 @@ public class EmitUtils {
 
     public static void push_array(CodeEmitter e, Object[] array) {
         e.push(array.length);
-        e.newarray(Type.getType(remapComponentType(array.getClass().getComponentType())));
+        e.newarray(Type.getType(remapComponentType(array.getClass().componentType())));
         for (int i = 0; i < array.length; i++) {
             e.dup();
             e.push(i);
@@ -367,15 +367,14 @@ public class EmitUtils {
         if (obj == null) {
             e.aconst_null();
         } else {
-            Class type = obj.getClass();
-            if (type.isArray()) {
-                push_array(e, (Object[])obj);
-            } else if (obj instanceof String) {
-                e.push((String)obj);
-            } else if (obj instanceof Type) {
-                load_class(e, (Type)obj);
-            } else if (obj instanceof Class) {
-                load_class(e, Type.getType((Class)obj));
+            if (obj.getClass().isArray()) {
+                push_array(e, (Object[]) obj);
+            } else if (obj instanceof String text) {
+                e.push(text);
+            } else if (obj instanceof Type type) {
+                load_class(e, type);
+            } else if (obj instanceof Class<?> clazz) {
+                load_class(e, Type.getType(clazz));
             } else if (obj instanceof BigInteger) {
                 e.new_instance(Constants.TYPE_BIG_INTEGER);
                 e.dup();
