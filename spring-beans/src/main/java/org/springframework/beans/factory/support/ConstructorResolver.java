@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,6 +61,7 @@ import org.springframework.beans.factory.config.ConstructorArgumentValues;
 import org.springframework.beans.factory.config.ConstructorArgumentValues.ValueHolder;
 import org.springframework.beans.factory.config.DependencyDescriptor;
 import org.springframework.beans.factory.config.RuntimeBeanReference;
+import org.springframework.beans.factory.config.TypedStringValue;
 import org.springframework.core.CollectionFactory;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.NamedThreadLocal;
@@ -69,6 +70,7 @@ import org.springframework.core.ResolvableType;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.MethodInvoker;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
@@ -120,11 +122,7 @@ class ConstructorResolver {
 
 	/**
 	 * "autowire constructor" (with constructor arguments by type) behavior.
-	 * Also applied if explicit constructor argument values are specified,
-	 * matching all remaining arguments with beans from the bean factory.
-	 * <p>This corresponds to constructor injection: In this mode, a Spring
-	 * bean factory is able to host components that expect constructor-based
-	 * dependency resolution.
+	 * Also applied if explicit constructor argument values are specified.
 	 * @param beanName the name of the bean
 	 * @param mbd the merged bean definition for the bean
 	 * @param chosenCtors chosen candidate constructors (or {@code null} if none)
@@ -601,7 +599,7 @@ class ConstructorResolver {
 					}
 				}
 				else if (resolvedValues != null) {
-					Set<ValueHolder> valueHolders = new LinkedHashSet<>(resolvedValues.getArgumentCount());
+					Set<ValueHolder> valueHolders = CollectionUtils.newLinkedHashSet(resolvedValues.getArgumentCount());
 					valueHolders.addAll(resolvedValues.getIndexedArgumentValues().values());
 					valueHolders.addAll(resolvedValues.getGenericArgumentValues());
 					for (ValueHolder value : valueHolders) {
@@ -613,13 +611,10 @@ class ConstructorResolver {
 				String argDesc = StringUtils.collectionToCommaDelimitedString(argTypes);
 				throw new BeanCreationException(mbd.getResourceDescription(), beanName,
 						"No matching factory method found on class [" + factoryClass.getName() + "]: " +
-						(mbd.getFactoryBeanName() != null ?
-								"factory bean '" + mbd.getFactoryBeanName() + "'; " : "") +
+						(mbd.getFactoryBeanName() != null ? "factory bean '" + mbd.getFactoryBeanName() + "'; " : "") +
 						"factory method '" + mbd.getFactoryMethodName() + "(" + argDesc + ")'. " +
-						"Check that a method with the specified name " +
-						(minNrOfArgs > 0 ? "and arguments " : "") +
-						"exists and that it is " +
-						(isStatic ? "static" : "non-static") + ".");
+						"Check that a method with the specified name " + (minNrOfArgs > 0 ? "and arguments " : "") +
+						"exists and that it is " + (isStatic ? "static" : "non-static") + ".");
 			}
 			else if (void.class == factoryMethodToUse.getReturnType()) {
 				throw new BeanCreationException(mbd.getResourceDescription(), beanName,
@@ -999,6 +994,9 @@ class ConstructorResolver {
 		for (ValueHolder valueHolder : mbd.getConstructorArgumentValues().getIndexedArgumentValues().values()) {
 			parameterTypes.add(determineParameterValueType(mbd, valueHolder));
 		}
+		for (ValueHolder valueHolder : mbd.getConstructorArgumentValues().getGenericArgumentValues()) {
+			parameterTypes.add(determineParameterValueType(mbd, valueHolder));
+		}
 		return parameterTypes;
 	}
 
@@ -1022,6 +1020,12 @@ class ConstructorResolver {
 					this.beanFactory.getMergedBeanDefinition(nameToUse, innerBd, mbd));
 			return (FactoryBean.class.isAssignableFrom(type.toClass()) ?
 					type.as(FactoryBean.class).getGeneric(0) : type);
+		}
+		if (value instanceof TypedStringValue typedValue) {
+			if (typedValue.hasTargetType()) {
+				return ResolvableType.forClass(typedValue.getTargetType());
+			}
+			return ResolvableType.forClass(String.class);
 		}
 		if (value instanceof Class<?> clazz) {
 			return ResolvableType.forClassWithGenerics(Class.class, clazz);
@@ -1190,7 +1194,7 @@ class ConstructorResolver {
 	}
 
 	private Predicate<ResolvableType> isAssignable(ResolvableType valueType) {
-		return parameterType -> parameterType.isAssignableFrom(valueType);
+		return parameterType -> (valueType == ResolvableType.NONE || parameterType.isAssignableFrom(valueType));
 	}
 
 	private ResolvableType extractElementType(ResolvableType parameterType) {
@@ -1434,6 +1438,11 @@ class ConstructorResolver {
 		public Object resolveShortcut(BeanFactory beanFactory) {
 			String shortcut = this.shortcut;
 			return (shortcut != null ? beanFactory.getBean(shortcut, getDependencyType()) : null);
+		}
+
+		@Override
+		public boolean usesStandardBeanLookup() {
+			return true;
 		}
 	}
 

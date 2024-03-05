@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,20 @@
 
 package org.springframework.http.client;
 
+import java.util.function.Function;
+
 import org.junit.jupiter.api.Test;
+import reactor.netty.http.client.HttpClient;
 
 import org.springframework.http.HttpMethod;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * @author Arjen Poutsma
+ * @author Sebastien Deleuze
  */
-public class ReactorNettyClientHttpRequestFactoryTests extends AbstractHttpRequestFactoryTests {
+class ReactorNettyClientHttpRequestFactoryTests extends AbstractHttpRequestFactoryTests {
 
 	@Override
 	protected ClientHttpRequestFactory createRequestFactory() {
@@ -32,9 +38,49 @@ public class ReactorNettyClientHttpRequestFactoryTests extends AbstractHttpReque
 
 	@Override
 	@Test
-	public void httpMethods() throws Exception {
+	void httpMethods() throws Exception {
 		super.httpMethods();
 		assertHttpMethod("patch", HttpMethod.PATCH);
+	}
+
+	@Test
+	void restartWithDefaultConstructor() {
+		ReactorNettyClientRequestFactory requestFactory = new ReactorNettyClientRequestFactory();
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.stop();
+		assertThat(requestFactory.isRunning()).isFalse();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
+	}
+
+	@Test
+	void restartWithExternalResourceFactory() {
+		ReactorResourceFactory resourceFactory = new ReactorResourceFactory();
+		resourceFactory.afterPropertiesSet();
+		Function<HttpClient, HttpClient> mapper = Function.identity();
+		ReactorNettyClientRequestFactory requestFactory = new ReactorNettyClientRequestFactory(resourceFactory, mapper);
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.stop();
+		assertThat(requestFactory.isRunning()).isFalse();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
+	}
+
+	@Test
+	void restartWithHttpClient() {
+		HttpClient httpClient = HttpClient.create();
+		ReactorNettyClientRequestFactory requestFactory = new ReactorNettyClientRequestFactory(httpClient);
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
+		requestFactory.stop();
+		assertThat(requestFactory.isRunning()).isFalse();
+		requestFactory.start();
+		assertThat(requestFactory.isRunning()).isTrue();
 	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
@@ -484,7 +485,7 @@ final class HierarchicalUriComponents extends UriComponents {
 			if (this.host != null) {
 				uriBuilder.append(this.host);
 			}
-			if (getPort() != -1) {
+			if (StringUtils.hasText(this.port) && !this.port.equals("-1")) {
 				uriBuilder.append(':').append(this.port);
 			}
 		}
@@ -566,14 +567,8 @@ final class HierarchicalUriComponents extends UriComponents {
 
 	@Override
 	public int hashCode() {
-		int result = ObjectUtils.nullSafeHashCode(getScheme());
-		result = 31 * result + ObjectUtils.nullSafeHashCode(this.userInfo);
-		result = 31 * result + ObjectUtils.nullSafeHashCode(this.host);
-		result = 31 * result + ObjectUtils.nullSafeHashCode(this.port);
-		result = 31 * result + this.path.hashCode();
-		result = 31 * result + this.queryParams.hashCode();
-		result = 31 * result + ObjectUtils.nullSafeHashCode(getFragment());
-		return result;
+		return Objects.hash(getScheme(), this.userInfo, this.host, this.port,
+				this.path, this.queryParams, getFragment());
 	}
 
 
@@ -756,7 +751,7 @@ final class HierarchicalUriComponents extends UriComponents {
 	}
 
 
-	private static class UriTemplateEncoder	implements BiFunction<String, Type, String> {
+	private static class UriTemplateEncoder implements BiFunction<String, Type, String> {
 
 		private final Charset charset;
 

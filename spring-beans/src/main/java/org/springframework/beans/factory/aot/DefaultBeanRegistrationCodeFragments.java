@@ -21,12 +21,16 @@ import java.lang.reflect.Executable;
 import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import org.springframework.aot.generate.AccessControl;
 import org.springframework.aot.generate.GenerationContext;
 import org.springframework.aot.generate.MethodReference;
 import org.springframework.aot.generate.MethodReference.ArgumentCodeGenerator;
+import org.springframework.aot.generate.ValueCodeGenerator;
+import org.springframework.aot.generate.ValueCodeGenerator.Delegate;
 import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.aot.AotServices.Loader;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinitionHolder;
 import org.springframework.beans.factory.support.InstanceSupplier;
@@ -39,20 +43,26 @@ import org.springframework.javapoet.ParameterizedTypeName;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.function.SingletonSupplier;
 
 /**
  * Internal {@link BeanRegistrationCodeFragments} implementation used by
  * default.
  *
  * @author Phillip Webb
+ * @author Stephane Nicoll
  */
 class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragments {
+
+	private static final ValueCodeGenerator valueCodeGenerator = ValueCodeGenerator.withDefaults();
 
 	private final BeanRegistrationsCode beanRegistrationsCode;
 
 	private final RegisteredBean registeredBean;
 
 	private final BeanDefinitionMethodGeneratorFactory beanDefinitionMethodGeneratorFactory;
+
+	private final Supplier<Executable> constructorOrFactoryMethod;
 
 
 	DefaultBeanRegistrationCodeFragments(BeanRegistrationsCode beanRegistrationsCode,
@@ -62,20 +72,23 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 		this.beanRegistrationsCode = beanRegistrationsCode;
 		this.registeredBean = registeredBean;
 		this.beanDefinitionMethodGeneratorFactory = beanDefinitionMethodGeneratorFactory;
+		this.constructorOrFactoryMethod = SingletonSupplier.of(registeredBean::resolveConstructorOrFactoryMethod);
 	}
 
 
 	@Override
-	public ClassName getTarget(RegisteredBean registeredBean,
-			Executable constructorOrFactoryMethod) {
-
-		Class<?> target = extractDeclaringClass(registeredBean.getBeanType(), constructorOrFactoryMethod);
+	public ClassName getTarget(RegisteredBean registeredBean) {
+		if (hasInstanceSupplier()) {
+			throw new IllegalStateException("Default code generation is not supported for bean definitions "
+					+ "declaring an instance supplier callback: " + registeredBean.getMergedBeanDefinition());
+		}
+		Class<?> target = extractDeclaringClass(registeredBean.getBeanType(), this.constructorOrFactoryMethod.get());
 		while (target.getName().startsWith("java.") && registeredBean.isInnerBean()) {
 			RegisteredBean parent = registeredBean.getParent();
 			Assert.state(parent != null, "No parent available for inner bean");
 			target = parent.getBeanClass();
 		}
-		return ClassName.get(target);
+		return (target.isArray() ? ClassName.get(target.getComponentType()) : ClassName.get(target));
 	}
 
 	private Class<?> extractDeclaringClass(ResolvableType beanType, Executable executable) {
@@ -117,7 +130,8 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 		Class<?> beanClass = (mergedBeanDefinition.hasBeanClass()
 				? ClassUtils.getUserClass(mergedBeanDefinition.getBeanClass()) : null);
 		CodeBlock beanClassCode = generateBeanClassCode(
-				beanRegistrationCode.getClassName().packageName(), beanClass);
+				beanRegistrationCode.getClassName().packageName(),
+				(beanClass != null ? beanClass : beanType.toClass()));
 		code.addStatement("$T $L = new $T($L)", RootBeanDefinition.class,
 				BEAN_DEFINITION_VARIABLE, RootBeanDefinition.class, beanClassCode);
 		if (targetTypeNecessary(beanType, beanClass)) {
@@ -127,31 +141,31 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 		return code.build();
 	}
 
-	private CodeBlock generateBeanClassCode(String targetPackage, @Nullable Class<?> beanClass) {
-		if (beanClass != null) {
-			if (Modifier.isPublic(beanClass.getModifiers()) || targetPackage.equals(beanClass.getPackageName())) {
-				return CodeBlock.of("$T.class", beanClass);
-			}
-			else {
-				return CodeBlock.of("$S", beanClass.getName());
-			}
+	private CodeBlock generateBeanClassCode(String targetPackage, Class<?> beanClass) {
+		if (Modifier.isPublic(beanClass.getModifiers()) || targetPackage.equals(beanClass.getPackageName())) {
+			return CodeBlock.of("$T.class", beanClass);
 		}
-		return CodeBlock.of("");
+		else {
+			return CodeBlock.of("$S", beanClass.getName());
+		}
 	}
 
 	private CodeBlock generateBeanTypeCode(ResolvableType beanType) {
 		if (!beanType.hasGenerics()) {
-			return CodeBlock.of("$T.class", ClassUtils.getUserClass(beanType.toClass()));
+			return valueCodeGenerator.generateCode(ClassUtils.getUserClass(beanType.toClass()));
 		}
-		return ResolvableTypeCodeGenerator.generateCode(beanType);
+		return valueCodeGenerator.generateCode(beanType);
 	}
 
 	private boolean targetTypeNecessary(ResolvableType beanType, @Nullable Class<?> beanClass) {
-		if (beanType.hasGenerics() || beanClass == null) {
+		if (beanType.hasGenerics()) {
 			return true;
 		}
-		return (!beanType.toClass().equals(beanClass)
-				|| this.registeredBean.getMergedBeanDefinition().getFactoryMethodName() != null);
+		if (beanClass != null
+				&& this.registeredBean.getMergedBeanDefinition().getFactoryMethodName() != null) {
+			return true;
+		}
+		return (beanClass != null && !beanType.toClass().equals(beanClass));
 	}
 
 	@Override
@@ -159,12 +173,12 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 			GenerationContext generationContext,
 			BeanRegistrationCode beanRegistrationCode, RootBeanDefinition beanDefinition,
 			Predicate<String> attributeFilter) {
-
-		return new BeanDefinitionPropertiesCodeGenerator(
-				generationContext.getRuntimeHints(), attributeFilter,
-				beanRegistrationCode.getMethods(),
-				(name, value) -> generateValueCode(generationContext, name, value))
-				.generateCode(beanDefinition);
+		Loader loader = AotServices.factories(this.registeredBean.getBeanFactory().getBeanClassLoader());
+		List<Delegate> additionalDelegates = loader.load(Delegate.class).asList();
+		return new BeanDefinitionPropertiesCodeGenerator(generationContext.getRuntimeHints(),
+				attributeFilter, beanRegistrationCode.getMethods(),
+				additionalDelegates, (name, value) -> generateValueCode(generationContext, name, value)
+		).generateCode(beanDefinition);
 	}
 
 	@Nullable
@@ -219,12 +233,14 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 
 	@Override
 	public CodeBlock generateInstanceSupplierCode(GenerationContext generationContext,
-			BeanRegistrationCode beanRegistrationCode,
-			Executable constructorOrFactoryMethod, boolean allowDirectSupplierShortcut) {
-
+			BeanRegistrationCode beanRegistrationCode, boolean allowDirectSupplierShortcut) {
+		if (hasInstanceSupplier()) {
+			throw new IllegalStateException("Default code generation is not supported for bean definitions declaring "
+					+ "an instance supplier callback: " + this.registeredBean.getMergedBeanDefinition());
+		}
 		return new InstanceSupplierCodeGenerator(generationContext,
 				beanRegistrationCode.getClassName(), beanRegistrationCode.getMethods(), allowDirectSupplierShortcut)
-				.generateCode(this.registeredBean, constructorOrFactoryMethod);
+				.generateCode(this.registeredBean, this.constructorOrFactoryMethod.get());
 	}
 
 	@Override
@@ -234,6 +250,10 @@ class DefaultBeanRegistrationCodeFragments implements BeanRegistrationCodeFragme
 		CodeBlock.Builder code = CodeBlock.builder();
 		code.addStatement("return $L", BEAN_DEFINITION_VARIABLE);
 		return code.build();
+	}
+
+	private boolean hasInstanceSupplier() {
+		return this.registeredBean.getMergedBeanDefinition().getInstanceSupplier() != null;
 	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -246,7 +246,7 @@ public interface ServerResponse {
 	 * @since 5.3
 	 */
 	static ServerResponse async(Object asyncResponse) {
-		return DefaultAsyncServerResponse.create(asyncResponse, null);
+		return AsyncServerResponse.create(asyncResponse);
 	}
 
 	/**
@@ -267,7 +267,7 @@ public interface ServerResponse {
 	 * @since 5.3.2
 	 */
 	static ServerResponse async(Object asyncResponse, Duration timeout) {
-		return DefaultAsyncServerResponse.create(asyncResponse, timeout);
+		return AsyncServerResponse.create(asyncResponse, timeout);
 	}
 
 	/**
@@ -571,6 +571,15 @@ public interface ServerResponse {
 		void send(Object object) throws IOException;
 
 		/**
+		 * Sends the buffered content as a server-sent event, without data.
+		 * Only the {@link #event(String) events} and {@link #comment(String) comments}
+		 * will be sent.
+		 * @throws IOException in case of I/O errors
+		 * @since 6.1.4
+		 */
+		void send() throws IOException;
+
+		/**
 		 * Add an SSE "id" line.
 		 * @param id the event identifier
 		 * @return this builder
@@ -635,7 +644,7 @@ public interface ServerResponse {
 		/**
 		 * Register a callback to be invoked when an error occurs during SSE
 		 * processing.
-		 * @param onError  the callback to invoke on error
+		 * @param onError the callback to invoke on error
 		 * @return this builder
 		 */
 		SseBuilder onError(Consumer<Throwable> onError);

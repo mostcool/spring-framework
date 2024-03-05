@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 package org.springframework.web.client.support;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,6 +30,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.service.invoker.HttpExchangeAdapter;
 import org.springframework.web.service.invoker.HttpRequestValues;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
+import org.springframework.web.util.UriBuilderFactory;
 
 /**
  * {@link HttpExchangeAdapter} that enables an {@link HttpServiceProxyFactory}
@@ -53,7 +55,7 @@ public final class RestClientAdapter implements HttpExchangeAdapter {
 
 	@Override
 	public boolean supportsRequestAttributes() {
-		return true;
+		return false;
 	}
 
 	@Override
@@ -93,7 +95,14 @@ public final class RestClientAdapter implements HttpExchangeAdapter {
 			bodySpec = uriSpec.uri(values.getUri());
 		}
 		else if (values.getUriTemplate() != null) {
-			bodySpec = uriSpec.uri(values.getUriTemplate(), values.getUriVariables());
+			UriBuilderFactory uriBuilderFactory = values.getUriBuilderFactory();
+			if (uriBuilderFactory != null) {
+				URI uri = uriBuilderFactory.expand(values.getUriTemplate(), values.getUriVariables());
+				bodySpec = uriSpec.uri(uri);
+			}
+			else {
+				bodySpec = uriSpec.uri(values.getUriTemplate(), values.getUriVariables());
+			}
 		}
 		else {
 			throw new IllegalStateException("Neither full URL nor URI template");
@@ -109,8 +118,6 @@ public final class RestClientAdapter implements HttpExchangeAdapter {
 			}));
 			bodySpec.header(HttpHeaders.COOKIE, String.join("; ", cookies));
 		}
-
-		bodySpec.attributes(attributes -> attributes.putAll(values.getAttributes()));
 
 		if (values.getBodyValue() != null) {
 			bodySpec.body(values.getBodyValue());

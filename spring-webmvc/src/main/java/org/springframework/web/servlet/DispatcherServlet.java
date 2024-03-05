@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -368,7 +368,6 @@ public class DispatcherServlet extends FrameworkServlet {
 	 * @see #DispatcherServlet(WebApplicationContext)
 	 */
 	public DispatcherServlet() {
-		super();
 		setDispatchOptionsRequest(true);
 	}
 
@@ -1018,10 +1017,13 @@ public class DispatcherServlet extends FrameworkServlet {
 
 			if (traceOn) {
 				List<String> values = Collections.list(request.getHeaderNames());
-				String headers = values.size() > 0 ? "masked" : "";
+				String headers;
 				if (isEnableLoggingRequestDetails()) {
 					headers = values.stream().map(name -> name + ":" + Collections.list(request.getHeaders(name)))
 							.collect(Collectors.joining(", "));
+				}
+				else {
+					headers = (!values.isEmpty() ? "masked" : "");
 				}
 				return message + ", headers={" + headers + "} in DispatcherServlet '" + getServletName() + "'";
 			}
@@ -1241,7 +1243,7 @@ public class DispatcherServlet extends FrameworkServlet {
 	/**
 	 * Check "jakarta.servlet.error.exception" attribute for a multipart exception.
 	 */
-	private boolean hasMultipartException(HttpServletRequest request) {
+	private static boolean hasMultipartException(HttpServletRequest request) {
 		Throwable error = (Throwable) request.getAttribute(WebUtils.ERROR_EXCEPTION_ATTRIBUTE);
 		while (error != null) {
 			if (error instanceof MultipartException) {
@@ -1338,6 +1340,14 @@ public class DispatcherServlet extends FrameworkServlet {
 
 		// Success and error responses may use different content types
 		request.removeAttribute(HandlerMapping.PRODUCIBLE_MEDIA_TYPES_ATTRIBUTE);
+		// Reset the response body buffer if the response is not committed already,
+		// leaving the response headers in place.
+		try {
+			response.resetBuffer();
+		}
+		catch (IllegalStateException illegalStateException) {
+			// the response is already committed, leave it to exception handlers anyway
+		}
 
 		// Check registered HandlerExceptionResolvers...
 		ModelAndView exMv = null;
@@ -1467,7 +1477,7 @@ public class DispatcherServlet extends FrameworkServlet {
 		return null;
 	}
 
-	private void triggerAfterCompletion(HttpServletRequest request, HttpServletResponse response,
+	private static void triggerAfterCompletion(HttpServletRequest request, HttpServletResponse response,
 			@Nullable HandlerExecutionChain mappedHandler, Exception ex) throws Exception {
 
 		if (mappedHandler != null) {

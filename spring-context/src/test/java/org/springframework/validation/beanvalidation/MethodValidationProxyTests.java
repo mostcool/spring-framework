@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.MutablePropertyValues;
 import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -54,9 +55,9 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
  * and/or {@link MethodValidationPostProcessor}.
  *
  * @author Juergen Hoeller
- * @author Rossen Stoyanchevß
+ * @author Rossen Stoyanchev
  */
-public class MethodValidationProxyTests {
+class MethodValidationProxyTests {
 
 	@Test
 	@SuppressWarnings("unchecked")
@@ -82,8 +83,7 @@ public class MethodValidationProxyTests {
 		context.close();
 	}
 
-	@Test // gh-29782
-	@SuppressWarnings("unchecked")
+	@Test  // gh-29782
 	public void testMethodValidationPostProcessorForInterfaceOnlyProxy() {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		context.register(MethodValidationPostProcessor.class);
@@ -108,20 +108,30 @@ public class MethodValidationProxyTests {
 	}
 
 	@Test
-	public void testLazyValidatorForMethodValidation() {
-		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(
-				LazyMethodValidationConfig.class, CustomValidatorBean.class,
-				MyValidBean.class, MyValidFactoryBean.class);
-		context.getBeansOfType(MyValidInterface.class).values().forEach(bean -> bean.myValidMethod("value", 5));
-		context.close();
+	void testLazyValidatorForMethodValidation() {
+		doTestLazyValidatorForMethodValidation(LazyMethodValidationConfig.class);
 	}
 
 	@Test
-	public void testLazyValidatorForMethodValidationWithProxyTargetClass() {
-		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(
-				LazyMethodValidationConfigWithProxyTargetClass.class, CustomValidatorBean.class,
-				MyValidBean.class, MyValidFactoryBean.class);
+	void testLazyValidatorForMethodValidationWithProxyTargetClass() {
+		doTestLazyValidatorForMethodValidation(LazyMethodValidationConfigWithProxyTargetClass.class);
+	}
+
+	@Test
+	void testLazyValidatorForMethodValidationWithValidatorProvider() {
+		doTestLazyValidatorForMethodValidation(LazyMethodValidationConfigWithValidatorProvider.class);
+	}
+
+	private void doTestLazyValidatorForMethodValidation(Class<?> configClass) {
+		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+		context.register(configClass, CustomValidatorBean.class, MyValidBean.class, MyValidFactoryBean.class);
+		context.getDefaultListableBeanFactory().getBeanDefinition("customValidatorBean").setLazyInit(true);
+		context.refresh();
+
+		assertThat(context.getDefaultListableBeanFactory().containsSingleton("customValidatorBean")).isFalse();
 		context.getBeansOfType(MyValidInterface.class).values().forEach(bean -> bean.myValidMethod("value", 5));
+		assertThat(context.getDefaultListableBeanFactory().containsSingleton("customValidatorBean")).isTrue();
+
 		context.close();
 	}
 
@@ -198,7 +208,7 @@ public class MethodValidationProxyTests {
 
 		@Nullable
 		@Override
-		public Object invoke(MethodInvocation invocation) throws Throwable {
+		public Object invoke(MethodInvocation invocation) {
 			Method method;
 			try {
 				method = ClassUtils.getMethod(MyValidBean.class, invocation.getMethod().getName(), (Class<?>[]) null);
@@ -252,6 +262,18 @@ public class MethodValidationProxyTests {
 			MethodValidationPostProcessor postProcessor = new MethodValidationPostProcessor();
 			postProcessor.setValidator(validator);
 			postProcessor.setProxyTargetClass(true);
+			return postProcessor;
+		}
+	}
+
+
+	@Configuration
+	public static class LazyMethodValidationConfigWithValidatorProvider {
+
+		@Bean
+		public static MethodValidationPostProcessor methodValidationPostProcessor(ObjectProvider<Validator> validator) {
+			MethodValidationPostProcessor postProcessor = new MethodValidationPostProcessor();
+			postProcessor.setValidatorProvider(validator);
 			return postProcessor;
 		}
 	}

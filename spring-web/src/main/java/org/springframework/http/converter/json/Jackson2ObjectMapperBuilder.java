@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ import com.fasterxml.jackson.databind.Module;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategy;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.cfg.DatatypeFeature;
 import com.fasterxml.jackson.databind.cfg.HandlerInstantiator;
 import com.fasterxml.jackson.databind.introspect.AnnotationIntrospectorPair;
 import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
@@ -86,6 +87,8 @@ import org.springframework.util.xml.StaxUtils;
  * support for Java 8 Date &amp; Time API types</li>
  * <li><a href="https://github.com/FasterXML/jackson-module-kotlin">jackson-module-kotlin</a>:
  * support for Kotlin classes and data classes</li>
+ * <li><a href="https://github.com/FasterXML/jackson-modules-java8/tree/2.17/parameter-names">jackson-modules-java8/parameter-names</a>:
+ * support for accessing parameter names</li>
  * </ul>
  *
  * @author Sebastien Deleuze
@@ -839,6 +842,9 @@ public class Jackson2ObjectMapperBuilder {
 		else if (feature instanceof DeserializationFeature deserializationFeature) {
 			objectMapper.configure(deserializationFeature, enabled);
 		}
+		else if (feature instanceof DatatypeFeature datatypeFeature) {
+			objectMapper.configure(datatypeFeature, enabled);
+		}
 		else if (feature instanceof MapperFeature mapperFeature) {
 			objectMapper.configure(mapperFeature, enabled);
 		}
@@ -857,6 +863,16 @@ public class Jackson2ObjectMapperBuilder {
 		}
 		catch (ClassNotFoundException ex) {
 			// jackson-datatype-jdk8 not available
+		}
+
+		try {
+			Class<? extends Module> parameterNamesModuleClass = (Class<? extends Module>)
+					ClassUtils.forName("com.fasterxml.jackson.module.paramnames.ParameterNamesModule", this.moduleClassLoader);
+			Module parameterNamesModule = BeanUtils.instantiateClass(parameterNamesModuleClass);
+			modulesToRegister.set(parameterNamesModule.getTypeId(), parameterNamesModule);
+		}
+		catch (ClassNotFoundException ex) {
+			// jackson-module-parameter-names not available
 		}
 
 		try {

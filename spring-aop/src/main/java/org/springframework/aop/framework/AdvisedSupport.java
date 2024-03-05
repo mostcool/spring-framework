@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,7 +47,8 @@ import org.springframework.util.ObjectUtils;
 
 /**
  * Base class for AOP proxy configuration managers.
- * These are not themselves AOP proxies, but subclasses of this class are
+ *
+ * <p>These are not themselves AOP proxies, but subclasses of this class are
  * normally factories from which AOP proxy instances are obtained directly.
  *
  * <p>This class frees subclasses of the housekeeping of Advices
@@ -56,10 +56,12 @@ import org.springframework.util.ObjectUtils;
  * methods, which are provided by subclasses.
  *
  * <p>This class is serializable; subclasses need not be.
- * This class is used to hold snapshots of proxies.
+ *
+ * <p>This class is used to hold snapshots of proxies.
  *
  * @author Rod Johnson
  * @author Juergen Hoeller
+ * @author Sam Brannen
  * @see org.springframework.aop.framework.AopProxy
  */
 public class AdvisedSupport extends ProxyConfig implements Advised {
@@ -82,10 +84,7 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	private boolean preFiltered = false;
 
 	/** The AdvisorChainFactory to use. */
-	private AdvisorChainFactory advisorChainFactory;
-
-	/** Cache with Method as key and advisor chain List as value. */
-	private transient Map<MethodCacheKey, List<Object>> methodCache;
+	private AdvisorChainFactory advisorChainFactory = DefaultAdvisorChainFactory.INSTANCE;
 
 	/**
 	 * Interfaces to be implemented by the proxy. Held in List to keep the order
@@ -99,39 +98,50 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	 */
 	private List<Advisor> advisors = new ArrayList<>();
 
+	/**
+	 * List of minimal {@link AdvisorKeyEntry} instances,
+	 * to be assigned to the {@link #advisors} field on reduction.
+	 * @since 6.0.10
+	 * @see #reduceToAdvisorKey
+	 */
 	private List<Advisor> advisorKey = this.advisors;
+
+	/** Cache with Method as key and advisor chain List as value. */
+	@Nullable
+	private transient Map<MethodCacheKey, List<Object>> methodCache;
+
+	/** Cache with shared interceptors which are not method-specific. */
+	@Nullable
+	private transient volatile List<Object> cachedInterceptors;
+
+	/**
+	 * Optional field for {@link AopProxy} implementations to store metadata in.
+	 * Used by {@link JdkDynamicAopProxy}.
+	 * @since 6.1.3
+	 * @see JdkDynamicAopProxy#JdkDynamicAopProxy(AdvisedSupport)
+	 */
+	@Nullable
+	transient volatile Object proxyMetadataCache;
 
 
 	/**
 	 * No-arg constructor for use as a JavaBean.
 	 */
 	public AdvisedSupport() {
-		this.advisorChainFactory = DefaultAdvisorChainFactory.INSTANCE;
-		this.methodCache = new ConcurrentHashMap<>(32);
 	}
 
 	/**
-	 * Create a AdvisedSupport instance with the given parameters.
+	 * Create an {@code AdvisedSupport} instance with the given parameters.
 	 * @param interfaces the proxied interfaces
 	 */
 	public AdvisedSupport(Class<?>... interfaces) {
-		this();
 		setInterfaces(interfaces);
-	}
-
-	/**
-	 * Internal constructor for {@link #getConfigurationOnlyCopy()}.
-	 * @since 6.0.10
-	 */
-	private AdvisedSupport(AdvisorChainFactory advisorChainFactory, Map<MethodCacheKey, List<Object>> methodCache) {
-		this.advisorChainFactory = advisorChainFactory;
-		this.methodCache = methodCache;
 	}
 
 
 	/**
 	 * Set the given object as target.
-	 * Will create a SingletonTargetSource for the object.
+	 * <p>Will create a SingletonTargetSource for the object.
 	 * @see #setTargetSource
 	 * @see org.springframework.aop.target.SingletonTargetSource
 	 */
@@ -479,21 +489,38 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	 * @return a List of MethodInterceptors (may also include InterceptorAndDynamicMethodMatchers)
 	 */
 	public List<Object> getInterceptorsAndDynamicInterceptionAdvice(Method method, @Nullable Class<?> targetClass) {
-		MethodCacheKey cacheKey = new MethodCacheKey(method);
-		List<Object> cached = this.methodCache.get(cacheKey);
-		if (cached == null) {
-			cached = this.advisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice(
-					this, method, targetClass);
-			this.methodCache.put(cacheKey, cached);
+		if (this.methodCache == null) {
+			// Shared cache since there are no method-specific advisors (see below).
+			List<Object> cachedInterceptors = this.cachedInterceptors;
+			if (cachedInterceptors == null) {
+				cachedInterceptors = this.advisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice(
+						this, method, targetClass);
+				this.cachedInterceptors = cachedInterceptors;
+			}
+			return cachedInterceptors;
 		}
-		return cached;
+
+		// Method-specific cache for method-specific pointcuts
+		return this.methodCache.computeIfAbsent(new MethodCacheKey(method), k ->
+				this.advisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice(this, method, targetClass));
 	}
 
 	/**
 	 * Invoked when advice has changed.
 	 */
 	protected void adviceChanged() {
-		this.methodCache.clear();
+		this.methodCache = null;
+		this.cachedInterceptors = null;
+		this.proxyMetadataCache = null;
+
+		// Initialize method cache if necessary; otherwise,
+		// cachedInterceptors is going to be shared (see above).
+		for (Advisor advisor : this.advisors) {
+			if (advisor instanceof PointcutAdvisor) {
+				this.methodCache = new ConcurrentHashMap<>();
+				break;
+			}
+		}
 	}
 
 	/**
@@ -506,9 +533,9 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	}
 
 	/**
-	 * Copy the AOP configuration from the given AdvisedSupport object,
-	 * but allow substitution of a fresh TargetSource and a given interceptor chain.
-	 * @param other the AdvisedSupport object to take proxy configuration from
+	 * Copy the AOP configuration from the given {@link AdvisedSupport} object,
+	 * but allow substitution of a fresh {@link TargetSource} and a given interceptor chain.
+	 * @param other the {@code AdvisedSupport} object to take proxy configuration from
 	 * @param targetSource the new TargetSource
 	 * @param advisors the Advisors for the chain
 	 */
@@ -528,43 +555,38 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	}
 
 	/**
-	 * Build a configuration-only copy of this AdvisedSupport,
-	 * replacing the TargetSource.
+	 * Build a configuration-only copy of this {@link AdvisedSupport},
+	 * replacing the {@link TargetSource}.
 	 */
 	AdvisedSupport getConfigurationOnlyCopy() {
-		AdvisedSupport copy = new AdvisedSupport(this.advisorChainFactory, this.methodCache);
+		AdvisedSupport copy = new AdvisedSupport();
 		copy.copyFrom(this);
 		copy.targetSource = EmptyTargetSource.forClass(getTargetClass(), getTargetSource().isStatic());
+		copy.preFiltered = this.preFiltered;
+		copy.advisorChainFactory = this.advisorChainFactory;
 		copy.interfaces = new ArrayList<>(this.interfaces);
 		copy.advisors = new ArrayList<>(this.advisors);
 		copy.advisorKey = new ArrayList<>(this.advisors.size());
 		for (Advisor advisor : this.advisors) {
 			copy.advisorKey.add(new AdvisorKeyEntry(advisor));
 		}
+		copy.methodCache = this.methodCache;
+		copy.cachedInterceptors = this.cachedInterceptors;
+		copy.proxyMetadataCache = this.proxyMetadataCache;
 		return copy;
 	}
 
 	void reduceToAdvisorKey() {
 		this.advisors = this.advisorKey;
-		this.methodCache = Collections.emptyMap();
+		this.methodCache = null;
+		this.cachedInterceptors = null;
+		this.proxyMetadataCache = null;
 	}
 
 	Object getAdvisorKey() {
 		return this.advisorKey;
 	}
 
-
-	//---------------------------------------------------------------------
-	// Serialization support
-	//---------------------------------------------------------------------
-
-	private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
-		// Rely on default serialization; just initialize state after deserialization.
-		ois.defaultReadObject();
-
-		// Initialize transient fields.
-		this.methodCache = new ConcurrentHashMap<>(32);
-	}
 
 	@Override
 	public String toProxyConfigString() {
@@ -587,6 +609,19 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 	}
 
 
+	//---------------------------------------------------------------------
+	// Serialization support
+	//---------------------------------------------------------------------
+
+	private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
+		// Rely on default serialization; just initialize state after deserialization.
+		ois.defaultReadObject();
+
+		// Initialize method cache if necessary.
+		adviceChanged();
+	}
+
+
 	/**
 	 * Simple wrapper class around a Method. Used as the key when
 	 * caching methods, for efficient equals and hashCode comparisons.
@@ -604,8 +639,7 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 
 		@Override
 		public boolean equals(@Nullable Object other) {
-			return (this == other || (other instanceof MethodCacheKey methodCacheKey &&
-					this.method == methodCacheKey.method));
+			return (this == other || (other instanceof MethodCacheKey that && this.method == that.method));
 		}
 
 		@Override
@@ -630,29 +664,33 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 
 
 	/**
-	 * Stub for an Advisor instance that is just needed for key purposes,
+	 * Stub for an {@link Advisor} instance that is just needed for key purposes,
 	 * allowing for efficient equals and hashCode comparisons against the
 	 * advice class and the pointcut.
 	 * @since 6.0.10
 	 * @see #getConfigurationOnlyCopy()
 	 * @see #getAdvisorKey()
 	 */
-	private static class AdvisorKeyEntry implements Advisor {
+	private static final class AdvisorKeyEntry implements Advisor {
 
 		private final Class<?> adviceType;
 
 		@Nullable
-		private String classFilterKey;
+		private final String classFilterKey;
 
 		@Nullable
-		private String methodMatcherKey;
+		private final String methodMatcherKey;
 
 		public AdvisorKeyEntry(Advisor advisor) {
 			this.adviceType = advisor.getAdvice().getClass();
 			if (advisor instanceof PointcutAdvisor pointcutAdvisor) {
 				Pointcut pointcut = pointcutAdvisor.getPointcut();
-				this.classFilterKey = ObjectUtils.identityToString(pointcut.getClassFilter());
-				this.methodMatcherKey = ObjectUtils.identityToString(pointcut.getMethodMatcher());
+				this.classFilterKey = pointcut.getClassFilter().toString();
+				this.methodMatcherKey = pointcut.getMethodMatcher().toString();
+			}
+			else {
+				this.classFilterKey = null;
+				this.methodMatcherKey = null;
 			}
 		}
 
@@ -663,10 +701,10 @@ public class AdvisedSupport extends ProxyConfig implements Advised {
 
 		@Override
 		public boolean equals(Object other) {
-			return (this == other || (other instanceof AdvisorKeyEntry otherEntry &&
-					this.adviceType == otherEntry.adviceType &&
-					ObjectUtils.nullSafeEquals(this.classFilterKey, otherEntry.classFilterKey) &&
-					ObjectUtils.nullSafeEquals(this.methodMatcherKey, otherEntry.methodMatcherKey)));
+			return (this == other || (other instanceof AdvisorKeyEntry that &&
+					this.adviceType == that.adviceType &&
+					ObjectUtils.nullSafeEquals(this.classFilterKey, that.classFilterKey) &&
+					ObjectUtils.nullSafeEquals(this.methodMatcherKey, that.methodMatcherKey)));
 		}
 
 		@Override

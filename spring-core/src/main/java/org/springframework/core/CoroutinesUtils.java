@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import kotlin.reflect.KClassifier;
 import kotlin.reflect.KFunction;
 import kotlin.reflect.KParameter;
 import kotlin.reflect.full.KCallables;
+import kotlin.reflect.full.KClasses;
 import kotlin.reflect.jvm.KCallablesJvm;
 import kotlin.reflect.jvm.ReflectJvmMapping;
 import kotlinx.coroutines.BuildersKt;
@@ -113,9 +114,22 @@ public abstract class CoroutinesUtils {
 					for (KParameter parameter : function.getParameters()) {
 						switch (parameter.getKind()) {
 							case INSTANCE -> argMap.put(parameter, target);
-							case VALUE -> {
-								if (!parameter.isOptional() || args[index] != null) {
-									argMap.put(parameter, args[index]);
+							case VALUE, EXTENSION_RECEIVER -> {
+								Object arg = args[index];
+								if (!(parameter.isOptional() && arg == null)) {
+									if (parameter.getType().getClassifier() instanceof KClass<?> kClass) {
+										Class<?> javaClass = JvmClassMappingKt.getJavaClass(kClass);
+										if (KotlinDetector.isInlineClass(javaClass)
+												&& !(parameter.getType().isMarkedNullable() && arg == null)) {
+											argMap.put(parameter, KClasses.getPrimaryConstructor(kClass).call(arg));
+										}
+										else {
+											argMap.put(parameter, arg);
+										}
+									}
+									else {
+										argMap.put(parameter, arg);
+									}
 								}
 								index++;
 							}
@@ -123,7 +137,7 @@ public abstract class CoroutinesUtils {
 					}
 					return KCallables.callSuspendBy(function, argMap, continuation);
 				})
-				.filter(result -> !Objects.equals(result, Unit.INSTANCE))
+				.filter(result -> result != Unit.INSTANCE)
 				.onErrorMap(InvocationTargetException.class, InvocationTargetException::getTargetException);
 
 		KClassifier returnType = function.getReturnType().getClassifier();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,7 +76,7 @@ public class UriComponentsBuilder implements UriBuilder, Cloneable {
 
 	private static final String HTTP_PATTERN = "(?i)(http|https):";
 
-	private static final String USERINFO_PATTERN = "([^@\\[/?#]*)";
+	private static final String USERINFO_PATTERN = "([^@/?#]*)";
 
 	private static final String HOST_IPV4_PATTERN = "[^\\[/?#:]*";
 
@@ -333,7 +333,7 @@ public class UriComponentsBuilder implements UriBuilder, Cloneable {
 	 * @return an {@code InetSocketAddress} with the extracted host and port, or
 	 * {@code null} if the headers are not present.
 	 * @since 5.3
-	 * @deprecated in favor of {@link ForwardedHeaderUtils#adaptFromForwardedHeaders};
+	 * @deprecated in favor of {@link ForwardedHeaderUtils#parseForwardedFor};
 	 * to be removed in 6.2
 	 */
 	@Deprecated(since = "6.1", forRemoval = true)
@@ -500,8 +500,10 @@ public class UriComponentsBuilder implements UriBuilder, Cloneable {
 	 * @since 4.1
 	 * @see UriComponents#toUriString()
 	 */
+	@Override
 	public String toUriString() {
-		return (this.uriVariables.isEmpty() ? build().encode().toUriString() :
+		return (this.uriVariables.isEmpty() ?
+				build().encode().toUriString() :
 				buildInternal(EncodingHint.ENCODE_TEMPLATE).toUriString());
 	}
 

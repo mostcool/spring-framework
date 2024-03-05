@@ -30,6 +30,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -345,7 +346,7 @@ class ExtendedBeanInfo implements BeanInfo {
 
 		@Override
 		public int hashCode() {
-			return (ObjectUtils.nullSafeHashCode(getReadMethod()) * 29 + ObjectUtils.nullSafeHashCode(getWriteMethod()));
+			return Objects.hash(getReadMethod(), getWriteMethod());
 		}
 
 		@Override
@@ -500,11 +501,8 @@ class ExtendedBeanInfo implements BeanInfo {
 
 		@Override
 		public int hashCode() {
-			int hashCode = ObjectUtils.nullSafeHashCode(getReadMethod());
-			hashCode = 29 * hashCode + ObjectUtils.nullSafeHashCode(getWriteMethod());
-			hashCode = 29 * hashCode + ObjectUtils.nullSafeHashCode(getIndexedReadMethod());
-			hashCode = 29 * hashCode + ObjectUtils.nullSafeHashCode(getIndexedWriteMethod());
-			return hashCode;
+			return Objects.hash(getReadMethod(), getWriteMethod(),
+					getIndexedReadMethod(), getIndexedWriteMethod());
 		}
 
 		@Override
@@ -526,20 +524,7 @@ class ExtendedBeanInfo implements BeanInfo {
 
 		@Override
 		public int compare(PropertyDescriptor desc1, PropertyDescriptor desc2) {
-			String left = desc1.getName();
-			String right = desc2.getName();
-			byte[] leftBytes = left.getBytes();
-			byte[] rightBytes = right.getBytes();
-			for (int i = 0; i < left.length(); i++) {
-				if (right.length() == i) {
-					return 1;
-				}
-				int result = leftBytes[i] - rightBytes[i];
-				if (result != 0) {
-					return result;
-				}
-			}
-			return left.length() - right.length();
+			return desc1.getName().compareTo(desc2.getName());
 		}
 	}
 

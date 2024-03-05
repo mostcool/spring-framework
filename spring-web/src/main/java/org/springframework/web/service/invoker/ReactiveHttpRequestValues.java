@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,11 +31,13 @@ import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.UriBuilderFactory;
 
 /**
  * {@link HttpRequestValues} extension for use with {@link ReactorHttpExchangeAdapter}.
  *
  * @author Rossen Stoyanchev
+ * @author Olga Maciaszek-Sharma
  * @since 6.1
  */
 public final class ReactiveHttpRequestValues extends HttpRequestValues {
@@ -49,19 +51,19 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 
 	private ReactiveHttpRequestValues(
 			@Nullable HttpMethod httpMethod,
-			@Nullable URI uri, @Nullable String uriTemplate, Map<String, String> uriVariables,
+			@Nullable URI uri, @Nullable UriBuilderFactory uriBuilderFactory,
+			@Nullable String uriTemplate, Map<String, String> uriVars,
 			HttpHeaders headers, MultiValueMap<String, String> cookies, Map<String, Object> attributes,
 			@Nullable Object bodyValue, @Nullable Publisher<?> body, @Nullable ParameterizedTypeReference<?> elementType) {
 
-		super(httpMethod, uri, uriTemplate, uriVariables, headers, cookies, attributes, bodyValue);
-
+		super(httpMethod, uri, uriBuilderFactory, uriTemplate, uriVars, headers, cookies, attributes, bodyValue);
 		this.body = body;
 		this.bodyElementType = elementType;
 	}
 
 
 	/**
-	 * Return a {@link Publisher} that will produce for the request body.
+	 * Return a {@link Publisher} that will produce the request body.
 	 * <p>This is mutually exclusive with {@link #getBodyValue()}.
 	 * Only one of the two or neither is set.
 	 */
@@ -71,7 +73,7 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 	}
 
 	/**
-	 * Return the element type for a {@linkplain #getBodyPublisher() Publisher body}.
+	 * Return the element type for a {@linkplain #getBodyPublisher() body publisher}.
 	 */
 	@Nullable
 	public ParameterizedTypeReference<?> getBodyPublisherElementType() {
@@ -79,10 +81,11 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 	}
 
 	/**
-	 * Return the request body as a Publisher.
+	 * Return the request body as a {@link Publisher}.
 	 * <p>This is mutually exclusive with {@link #getBodyValue()}.
 	 * Only one of the two or neither is set.
 	 */
+	@Override
 	@SuppressWarnings("removal")
 	@Nullable
 	public Publisher<?> getBody() {
@@ -90,8 +93,9 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 	}
 
 	/**
-	 * Return the element type for a {@linkplain #getBodyPublisher() Publisher body}.
+	 * Return the element type for a {@linkplain #getBodyPublisher() body publisher}.
 	 */
+	@Override
 	@SuppressWarnings("removal")
 	@Nullable
 	public ParameterizedTypeReference<?> getBodyElementType() {
@@ -107,7 +111,7 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 	/**
 	 * Builder for {@link ReactiveHttpRequestValues}.
 	 */
-	public final static class Builder extends HttpRequestValues.Builder {
+	public static final class Builder extends HttpRequestValues.Builder {
 
 		@Nullable
 		private MultipartBodyBuilder multipartBuilder;
@@ -127,6 +131,12 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 		@Override
 		public Builder setUri(URI uri) {
 			super.setUri(uri);
+			return this;
+		}
+
+		@Override
+		public Builder setUriBuilderFactory(@Nullable UriBuilderFactory uriBuilderFactory) {
+			super.setUriBuilderFactory(uriBuilderFactory);
 			return this;
 		}
 
@@ -209,8 +219,9 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 
 		/**
 		 * {@inheritDoc}
-		 * <p>This is mutually exclusive with, and resets any previously set
-		 * {@linkplain #setBodyPublisher(Publisher, ParameterizedTypeReference)}.
+		 * <p>This is mutually exclusive with and resets any previously set
+		 * {@linkplain #setBodyPublisher(Publisher, ParameterizedTypeReference)
+		 * body publisher}.
 		 */
 		@Override
 		public void setBodyValue(Object bodyValue) {
@@ -220,8 +231,8 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 		}
 
 		/**
-		 * Set the request body as a Reactive Streams Publisher.
-		 * <p>This is mutually exclusive with, and resets any previously set
+		 * Set the request body as a Reactive Streams {@link Publisher}.
+		 * <p>This is mutually exclusive with and resets any previously set
 		 * {@linkplain #setBodyValue(Object) body value}.
 		 */
 		@SuppressWarnings("DataFlowIssue")
@@ -261,15 +272,15 @@ public final class ReactiveHttpRequestValues extends HttpRequestValues {
 		@Override
 		protected ReactiveHttpRequestValues createRequestValues(
 				@Nullable HttpMethod httpMethod,
-				@Nullable URI uri, @Nullable String uriTemplate, Map<String, String> uriVars,
+				@Nullable URI uri, @Nullable UriBuilderFactory uriBuilderFactory,
+				@Nullable String uriTemplate, Map<String, String> uriVars,
 				HttpHeaders headers, MultiValueMap<String, String> cookies, Map<String, Object> attributes,
 				@Nullable Object bodyValue) {
 
 			return new ReactiveHttpRequestValues(
-					httpMethod, uri, uriTemplate, uriVars, headers, cookies, attributes,
-					bodyValue, this.body, this.bodyElementType);
+					httpMethod, uri, uriBuilderFactory, uriTemplate, uriVars,
+					headers, cookies, attributes, bodyValue, this.body, this.bodyElementType);
 		}
-
 	}
 
 }

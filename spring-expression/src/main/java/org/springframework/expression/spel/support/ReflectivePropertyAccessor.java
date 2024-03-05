@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import kotlin.jvm.JvmClassMappingKt;
+import kotlin.reflect.KClass;
+import kotlin.reflect.KMutableProperty;
+import kotlin.reflect.KProperty;
+import kotlin.reflect.full.KClasses;
+import kotlin.reflect.jvm.ReflectJvmMapping;
+
 import org.springframework.asm.MethodVisitor;
+import org.springframework.core.KotlinDetector;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.convert.Property;
 import org.springframework.core.convert.TypeDescriptor;
@@ -55,6 +63,7 @@ import org.springframework.util.StringUtils;
  * @author Juergen Hoeller
  * @author Phillip Webb
  * @author Sam Brannen
+ * @author Sebastien Deleuze
  * @since 3.0
  * @see StandardEvaluationContext
  * @see SimpleEvaluationContext
@@ -64,7 +73,7 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 
 	private static final Set<Class<?>> ANY_TYPES = Collections.emptySet();
 
-	private static final Set<Class<?>> BOOLEAN_TYPES = Set.of(Boolean.class, Boolean.TYPE);
+	private static final Set<Class<?>> BOOLEAN_TYPES = Set.of(Boolean.class, boolean.class);
 
 	private final boolean allowWrite;
 
@@ -329,7 +338,7 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 		Class<?> type = (target instanceof Class<?> clazz ? clazz : target.getClass());
 
 		if (type.isArray() && name.equals("length")) {
-			return TypeDescriptor.valueOf(Integer.TYPE);
+			return TypeDescriptor.valueOf(int.class);
 		}
 		PropertyCacheKey cacheKey = new PropertyCacheKey(type, name, target instanceof Class);
 		TypeDescriptor typeDescriptor = this.typeDescriptorCache.get(cacheKey);
@@ -401,7 +410,8 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 		Method[] methods = getSortedMethods(clazz);
 		for (String methodSuffix : methodSuffixes) {
 			for (Method method : methods) {
-				if (isCandidateForProperty(method, clazz) && method.getName().equals(prefix + methodSuffix) &&
+				if (isCandidateForProperty(method, clazz) &&
+						(method.getName().equals(prefix + methodSuffix) || isKotlinProperty(method, methodSuffix)) &&
 						method.getParameterCount() == numberOfParams &&
 						(!mustBeStatic || Modifier.isStatic(method.getModifiers())) &&
 						(requiredReturnTypes.isEmpty() || requiredReturnTypes.contains(method.getReturnType()))) {
@@ -557,23 +567,19 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 		return this;
 	}
 
+	private static boolean isKotlinProperty(Method method, String methodSuffix) {
+		Class<?> clazz = method.getDeclaringClass();
+		return KotlinDetector.isKotlinReflectPresent() &&
+				KotlinDetector.isKotlinType(clazz) &&
+				KotlinDelegate.isKotlinProperty(method, methodSuffix);
+	}
+
 
 	/**
 	 * Captures the member (method/field) to call reflectively to access a property value
 	 * and the type descriptor for the value returned by the reflective call.
 	 */
-	private static class InvokerPair {
-
-		final Member member;
-
-		final TypeDescriptor typeDescriptor;
-
-		public InvokerPair(Member member, TypeDescriptor typeDescriptor) {
-			this.member = member;
-			this.typeDescriptor = typeDescriptor;
-		}
-	}
-
+	private record InvokerPair(Member member, TypeDescriptor typeDescriptor) {}
 
 	private static final class PropertyCacheKey implements Comparable<PropertyCacheKey> {
 
@@ -753,6 +759,26 @@ public class ReflectivePropertyAccessor implements PropertyAccessor {
 						CodeFlow.toJvmDescriptor(((Field) this.member).getType()));
 			}
 		}
+	}
+
+	/**
+	 * Inner class to avoid a hard dependency on Kotlin at runtime.
+	 */
+	private static class KotlinDelegate {
+
+		public static boolean isKotlinProperty(Method method, String methodSuffix) {
+			KClass<?> kClass = JvmClassMappingKt.getKotlinClass(method.getDeclaringClass());
+			for (KProperty<?> property : KClasses.getMemberProperties(kClass)) {
+				if (methodSuffix.equalsIgnoreCase(property.getName()) &&
+						(method.equals(ReflectJvmMapping.getJavaGetter(property)) ||
+								property instanceof KMutableProperty<?> mutableProperty &&
+										method.equals(ReflectJvmMapping.getJavaSetter(mutableProperty)))) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 	}
 
 }

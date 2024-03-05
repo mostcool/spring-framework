@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,13 +55,13 @@ import static org.springframework.core.testfixture.TestGroup.LONG_RUNNING;
  * @author Juergen Hoeller
  * @since 3.1
  */
-public class EnableSchedulingTests {
+class EnableSchedulingTests {
 
 	private AnnotationConfigApplicationContext ctx;
 
 
 	@AfterEach
-	public void tearDown() {
+	void tearDown() {
 		if (ctx != null) {
 			ctx.close();
 		}
@@ -140,7 +140,7 @@ public class EnableSchedulingTests {
 	}
 
 	@Test
-	public void withExplicitSchedulerAmbiguity_andSchedulingEnabled() {
+	void withExplicitSchedulerAmbiguity_andSchedulingEnabled() {
 		// No exception raised as of 4.3, aligned with the behavior for @Async methods (SPR-14030)
 		ctx = new AnnotationConfigApplicationContext(AmbiguousExplicitSchedulerConfig.class);
 	}
@@ -175,16 +175,29 @@ public class EnableSchedulingTests {
 
 		Thread.sleep(110);
 		assertThat(ctx.getBean(AtomicInteger.class).get()).isGreaterThanOrEqualTo(10);
-		assertThat(ctx.getBean(QualifiedExplicitSchedulerConfigWithPlaceholder.class).threadName).startsWith("explicitScheduler1");
+		assertThat(ctx.getBean(QualifiedExplicitSchedulerConfigWithPlaceholder.class).threadName)
+				.startsWith("explicitScheduler1").isNotEqualTo("explicitScheduler1-1");
 	}
 
 	@Test
-	public void withAmbiguousTaskSchedulers_butNoActualTasks() {
+	@EnabledForTestGroups(LONG_RUNNING)
+	public void withQualifiedSchedulerWithFixedDelayTask() throws InterruptedException {
+		ctx = new AnnotationConfigApplicationContext(QualifiedExplicitSchedulerConfigWithFixedDelayTask.class);
+		assertThat(ctx.getBean(ScheduledTaskHolder.class).getScheduledTasks()).hasSize(1);
+
+		Thread.sleep(110);
+		assertThat(ctx.getBean(AtomicInteger.class).get()).isBetween(4, 5);
+		assertThat(ctx.getBean(QualifiedExplicitSchedulerConfigWithFixedDelayTask.class).threadName)
+				.isEqualTo("explicitScheduler1-1");
+	}
+
+	@Test
+	void withAmbiguousTaskSchedulers_butNoActualTasks() {
 		ctx = new AnnotationConfigApplicationContext(SchedulingEnabled_withAmbiguousTaskSchedulers_butNoActualTasks.class);
 	}
 
 	@Test
-	public void withAmbiguousTaskSchedulers_andSingleTask() {
+	void withAmbiguousTaskSchedulers_andSingleTask() {
 		// No exception raised as of 4.3, aligned with the behavior for @Async methods (SPR-14030)
 		ctx = new AnnotationConfigApplicationContext(SchedulingEnabled_withAmbiguousTaskSchedulers_andSingleTask.class);
 	}
@@ -220,24 +233,49 @@ public class EnableSchedulingTests {
 
 	@Test
 	@EnabledForTestGroups(LONG_RUNNING)
-	public void withTriggerTask() throws InterruptedException {
-		ctx = new AnnotationConfigApplicationContext(TriggerTaskConfig.class);
-
-		Thread.sleep(110);
-		assertThat(ctx.getBean(AtomicInteger.class).get()).isGreaterThan(1);
-	}
-
-	@Test
-	@EnabledForTestGroups(LONG_RUNNING)
 	public void withInitiallyDelayedFixedRateTask() throws InterruptedException {
 		ctx = new AnnotationConfigApplicationContext(FixedRateTaskConfig_withInitialDelay.class);
 
 		Thread.sleep(1950);
 		AtomicInteger counter = ctx.getBean(AtomicInteger.class);
 
-		// The @Scheduled method should have been called at least once but
-		// not more times than the delay allows.
-		assertThat(counter.get()).isBetween(1, 10);
+		// The @Scheduled method should have been called several times
+		// but not more times than the delay allows.
+		assertThat(counter.get()).isBetween(6, 10);
+	}
+
+	@Test
+	@EnabledForTestGroups(LONG_RUNNING)
+	public void withInitiallyDelayedFixedDelayTask() throws InterruptedException {
+		ctx = new AnnotationConfigApplicationContext(FixedDelayTaskConfig_withInitialDelay.class);
+
+		Thread.sleep(1950);
+		AtomicInteger counter = ctx.getBean(AtomicInteger.class);
+
+		// The @Scheduled method should have been called several times
+		// but not more times than the delay allows.
+		assertThat(counter.get()).isBetween(1, 5);
+	}
+
+	@Test
+	@EnabledForTestGroups(LONG_RUNNING)
+	public void withOneTimeTask() throws InterruptedException {
+		ctx = new AnnotationConfigApplicationContext(OneTimeTaskConfig.class);
+
+		Thread.sleep(110);
+		AtomicInteger counter = ctx.getBean(AtomicInteger.class);
+
+		// The @Scheduled method should have been called exactly once.
+		assertThat(counter.get()).isEqualTo(1);
+	}
+
+	@Test
+	@EnabledForTestGroups(LONG_RUNNING)
+	public void withTriggerTask() throws InterruptedException {
+		ctx = new AnnotationConfigApplicationContext(TriggerTaskConfig.class);
+
+		Thread.sleep(110);
+		assertThat(ctx.getBean(AtomicInteger.class).get()).isGreaterThan(1);
 	}
 
 
@@ -306,9 +344,10 @@ public class EnableSchedulingTests {
 		@Override
 		public TaskScheduler myTaskScheduler() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler-");
-			scheduler.setAwaitTerminationMillis(1000);
 			scheduler.setPoolSize(2);
+			scheduler.setThreadNamePrefix("explicitScheduler-");
+			scheduler.setAcceptTasksAfterContextClose(true);
+			scheduler.setAwaitTerminationMillis(1000);
 			return scheduler;
 		}
 	}
@@ -321,14 +360,14 @@ public class EnableSchedulingTests {
 		@Bean
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			return scheduler;
 		}
 
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 
@@ -347,14 +386,14 @@ public class EnableSchedulingTests {
 		@Bean
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			return scheduler;
 		}
 
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 
@@ -385,14 +424,14 @@ public class EnableSchedulingTests {
 		@Bean @Qualifier("myScheduler")
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			return scheduler;
 		}
 
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 
@@ -402,9 +441,10 @@ public class EnableSchedulingTests {
 		}
 
 		@Scheduled(fixedRate = 10, scheduler = "myScheduler")
-		public void task() {
+		public void task() throws InterruptedException {
 			threadName = Thread.currentThread().getName();
 			counter().incrementAndGet();
+			Thread.sleep(10);
 		}
 	}
 
@@ -418,14 +458,14 @@ public class EnableSchedulingTests {
 		@Bean @Qualifier("myScheduler")
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			return scheduler;
 		}
 
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 
@@ -435,9 +475,10 @@ public class EnableSchedulingTests {
 		}
 
 		@Scheduled(fixedRate = 10, scheduler = "${scheduler}")
-		public void task() {
+		public void task() throws InterruptedException {
 			threadName = Thread.currentThread().getName();
 			counter().incrementAndGet();
+			Thread.sleep(10);
 		}
 
 		@Bean
@@ -453,19 +494,53 @@ public class EnableSchedulingTests {
 
 	@Configuration
 	@EnableScheduling
-	static class SchedulingEnabled_withAmbiguousTaskSchedulers_butNoActualTasks {
+	static class QualifiedExplicitSchedulerConfigWithFixedDelayTask {
 
-		@Bean
+		String threadName;
+
+		@Bean @Qualifier("myScheduler")
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			return scheduler;
 		}
 
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
+			return scheduler;
+		}
+
+		@Bean
+		public AtomicInteger counter() {
+			return new AtomicInteger();
+		}
+
+		@Scheduled(fixedDelay = 10, scheduler = "myScheduler")
+		public void task() throws InterruptedException {
+			threadName = Thread.currentThread().getName();
+			counter().incrementAndGet();
+			Thread.sleep(10);
+		}
+	}
+
+
+	@Configuration
+	@EnableScheduling
+	static class SchedulingEnabled_withAmbiguousTaskSchedulers_butNoActualTasks {
+
+		@Bean
+		public TaskScheduler taskScheduler1() {
+			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
+			return scheduler;
+		}
+
+		@Bean
+		public TaskScheduler taskScheduler2() {
+			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 	}
@@ -482,7 +557,7 @@ public class EnableSchedulingTests {
 		@Bean
 		public TaskScheduler taskScheduler1() {
 			SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler1");
+			scheduler.setThreadNamePrefix("explicitScheduler1-");
 			scheduler.setConcurrencyLimit(1);
 			return scheduler;
 		}
@@ -490,7 +565,7 @@ public class EnableSchedulingTests {
 		@Bean
 		public TaskScheduler taskScheduler2() {
 			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.setThreadNamePrefix("explicitScheduler2");
+			scheduler.setThreadNamePrefix("explicitScheduler2-");
 			return scheduler;
 		}
 	}
@@ -599,6 +674,56 @@ public class EnableSchedulingTests {
 
 
 	@Configuration
+	@EnableScheduling
+	static class FixedRateTaskConfig_withInitialDelay {
+
+		@Bean
+		public AtomicInteger counter() {
+			return new AtomicInteger();
+		}
+
+		@Scheduled(initialDelay = 1000, fixedRate = 100)
+		public void task() throws InterruptedException {
+			counter().incrementAndGet();
+			Thread.sleep(100);
+		}
+	}
+
+
+	@Configuration
+	@EnableScheduling
+	static class FixedDelayTaskConfig_withInitialDelay {
+
+		@Bean
+		public AtomicInteger counter() {
+			return new AtomicInteger();
+		}
+
+		@Scheduled(initialDelay = 1000, fixedDelay = 100)
+		public void task() throws InterruptedException {
+			counter().incrementAndGet();
+			Thread.sleep(100);
+		}
+	}
+
+
+	@Configuration
+	@EnableScheduling
+	static class OneTimeTaskConfig {
+
+		@Bean
+		public AtomicInteger counter() {
+			return new AtomicInteger();
+		}
+
+		@Scheduled(initialDelay = 10)
+		public void task() {
+			counter().incrementAndGet();
+		}
+	}
+
+
+	@Configuration
 	static class TriggerTaskConfig {
 
 		@Bean
@@ -613,22 +738,6 @@ public class EnableSchedulingTests {
 			scheduler.schedule(() -> counter().incrementAndGet(),
 					triggerContext -> Instant.now().plus(10, ChronoUnit.MILLIS));
 			return scheduler;
-		}
-	}
-
-
-	@Configuration
-	@EnableScheduling
-	static class FixedRateTaskConfig_withInitialDelay {
-
-		@Bean
-		public AtomicInteger counter() {
-			return new AtomicInteger();
-		}
-
-		@Scheduled(initialDelay = 1000, fixedRate = 100)
-		public void task() {
-			counter().incrementAndGet();
 		}
 	}
 

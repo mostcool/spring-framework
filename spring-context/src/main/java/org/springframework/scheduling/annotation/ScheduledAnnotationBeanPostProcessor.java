@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,11 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
@@ -65,6 +63,7 @@ import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.config.CronTask;
 import org.springframework.scheduling.config.FixedDelayTask;
 import org.springframework.scheduling.config.FixedRateTask;
+import org.springframework.scheduling.config.OneTimeTask;
 import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
@@ -149,7 +148,7 @@ public class ScheduledAnnotationBeanPostProcessor
 	@Nullable
 	private TaskSchedulerRouter localScheduler;
 
-	private final Set<Class<?>> nonAnnotatedClasses = Collections.newSetFromMap(new ConcurrentHashMap<>(64));
+	private final Set<Class<?>> nonAnnotatedClasses = ConcurrentHashMap.newKeySet(64);
 
 	private final Map<Object, Set<ScheduledTask>> scheduledTasks = new IdentityHashMap<>(16);
 
@@ -393,8 +392,7 @@ public class ScheduledAnnotationBeanPostProcessor
 	private void processScheduledTask(Scheduled scheduled, Runnable runnable, Method method, Object bean) {
 		try {
 			boolean processedSchedule = false;
-			String errorMessage =
-					"Exactly one of the 'cron', 'fixedDelay(String)', or 'fixedRate(String)' attributes is required";
+			String errorMessage = "Exactly one of the 'cron', 'fixedDelay' or 'fixedRate' attributes is required";
 
 			Set<ScheduledTask> tasks = new LinkedHashSet<>(4);
 
@@ -429,31 +427,28 @@ public class ScheduledAnnotationBeanPostProcessor
 					Assert.isTrue(initialDelay.isNegative(), "'initialDelay' not supported for cron triggers");
 					processedSchedule = true;
 					if (!Scheduled.CRON_DISABLED.equals(cron)) {
-						TimeZone timeZone;
+						CronTrigger trigger;
 						if (StringUtils.hasText(zone)) {
-							timeZone = StringUtils.parseTimeZoneString(zone);
+							trigger = new CronTrigger(cron, StringUtils.parseTimeZoneString(zone));
 						}
 						else {
-							timeZone = TimeZone.getDefault();
+							trigger = new CronTrigger(cron);
 						}
-						tasks.add(this.registrar.scheduleCronTask(new CronTask(runnable, new CronTrigger(cron, timeZone))));
+						tasks.add(this.registrar.scheduleCronTask(new CronTask(runnable, trigger)));
 					}
 				}
 			}
 
 			// At this point we don't need to differentiate between initial delay set or not anymore
-			if (initialDelay.isNegative()) {
-				initialDelay = Duration.ZERO;
-			}
+			Duration delayToUse = (initialDelay.isNegative() ? Duration.ZERO : initialDelay);
 
 			// Check fixed delay
 			Duration fixedDelay = toDuration(scheduled.fixedDelay(), scheduled.timeUnit());
 			if (!fixedDelay.isNegative()) {
 				Assert.isTrue(!processedSchedule, errorMessage);
 				processedSchedule = true;
-				tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, initialDelay)));
+				tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, delayToUse)));
 			}
-
 			String fixedDelayString = scheduled.fixedDelayString();
 			if (StringUtils.hasText(fixedDelayString)) {
 				if (this.embeddedValueResolver != null) {
@@ -469,7 +464,7 @@ public class ScheduledAnnotationBeanPostProcessor
 						throw new IllegalArgumentException(
 								"Invalid fixedDelayString value \"" + fixedDelayString + "\" - cannot parse into long");
 					}
-					tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, initialDelay)));
+					tasks.add(this.registrar.scheduleFixedDelayTask(new FixedDelayTask(runnable, fixedDelay, delayToUse)));
 				}
 			}
 
@@ -478,7 +473,7 @@ public class ScheduledAnnotationBeanPostProcessor
 			if (!fixedRate.isNegative()) {
 				Assert.isTrue(!processedSchedule, errorMessage);
 				processedSchedule = true;
-				tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, initialDelay)));
+				tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, delayToUse)));
 			}
 			String fixedRateString = scheduled.fixedRateString();
 			if (StringUtils.hasText(fixedRateString)) {
@@ -495,12 +490,16 @@ public class ScheduledAnnotationBeanPostProcessor
 						throw new IllegalArgumentException(
 								"Invalid fixedRateString value \"" + fixedRateString + "\" - cannot parse into long");
 					}
-					tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, initialDelay)));
+					tasks.add(this.registrar.scheduleFixedRateTask(new FixedRateTask(runnable, fixedRate, delayToUse)));
 				}
 			}
 
-			// Check whether we had any attribute set
-			Assert.isTrue(processedSchedule, errorMessage);
+			if (!processedSchedule) {
+				if (initialDelay.isNegative()) {
+					throw new IllegalArgumentException("One-time task only supported with specified initial delay");
+				}
+				tasks.add(this.registrar.scheduleOneTimeTask(new OneTimeTask(runnable, delayToUse)));
+			}
 
 			// Finally register the scheduled tasks
 			synchronized (this.scheduledTasks) {
@@ -548,7 +547,13 @@ public class ScheduledAnnotationBeanPostProcessor
 	}
 
 	private static Duration toDuration(long value, TimeUnit timeUnit) {
-		return Duration.of(value, timeUnit.toChronoUnit());
+		try {
+			return Duration.of(value, timeUnit.toChronoUnit());
+		}
+		catch (Exception ex) {
+			throw new IllegalArgumentException(
+					"Unsupported unit " + timeUnit + " for value \"" + value + "\": " + ex.getMessage());
+		}
 	}
 
 	private static Duration toDuration(String value, TimeUnit timeUnit) {
@@ -597,7 +602,7 @@ public class ScheduledAnnotationBeanPostProcessor
 		}
 		if (tasks != null) {
 			for (ScheduledTask task : tasks) {
-				task.cancel();
+				task.cancel(false);
 			}
 		}
 		if (liveSubscriptions != null) {
@@ -620,7 +625,7 @@ public class ScheduledAnnotationBeanPostProcessor
 			Collection<Set<ScheduledTask>> allTasks = this.scheduledTasks.values();
 			for (Set<ScheduledTask> tasks : allTasks) {
 				for (ScheduledTask task : tasks) {
-					task.cancel();
+					task.cancel(false);
 				}
 			}
 			this.scheduledTasks.clear();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.entry;
 
 /**
- * Unit tests for {@link DefaultConversionService}.
+ * Tests for {@link DefaultConversionService}.
  *
  * <p>In this package for enforcing accessibility checks to non-public classes outside
  * the {@code org.springframework.core.convert.support} implementation package.
@@ -316,6 +317,24 @@ class DefaultConversionServiceTests {
 		String convertToString = conversionService.convert(uuid, String.class);
 		UUID convertToUUID = conversionService.convert(convertToString, UUID.class);
 		assertThat(convertToUUID).isEqualTo(uuid);
+	}
+
+	@Test
+	void stringToPatternEmptyString() {
+		assertThat(conversionService.convert("", Pattern.class)).isNull();
+	}
+
+	@Test
+	void stringToPattern() {
+		String pattern = "\\s";
+		assertThat(conversionService.convert(pattern, Pattern.class))
+				.isInstanceOfSatisfying(Pattern.class, regex -> assertThat(regex.pattern()).isEqualTo(pattern));
+	}
+
+	@Test
+	void patternToString() {
+		String regex = "\\d";
+		assertThat(conversionService.convert(Pattern.compile(regex), String.class)).isEqualTo(regex);
 	}
 
 	@Test
@@ -843,7 +862,7 @@ class DefaultConversionServiceTests {
 	void convertObjectToObjectFinderMethodWithNull() {
 		TestEntity entity = (TestEntity) conversionService.convert(null,
 				TypeDescriptor.valueOf(String.class), TypeDescriptor.valueOf(TestEntity.class));
-		assertThat((Object) entity).isNull();
+		assertThat(entity).isNull();
 	}
 
 	@Test

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,15 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Stream;
 
+import kotlin.Unit;
+import kotlin.coroutines.CoroutineContext;
+import kotlin.jvm.JvmClassMappingKt;
+import kotlin.reflect.KClass;
 import kotlin.reflect.KFunction;
 import kotlin.reflect.KParameter;
+import kotlin.reflect.full.KClasses;
 import kotlin.reflect.jvm.KCallablesJvm;
 import kotlin.reflect.jvm.ReflectJvmMapping;
 import reactor.core.publisher.Mono;
@@ -77,6 +81,8 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 	@Nullable
 	private MethodValidator methodValidator;
+
+	private Class<?>[] validationGroups = EMPTY_GROUPS;
 
 
 	/**
@@ -142,6 +148,8 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	 */
 	public void setMethodValidator(@Nullable MethodValidator methodValidator) {
 		this.methodValidator = methodValidator;
+		this.validationGroups = (methodValidator != null ?
+				methodValidator.determineValidationGroups(getBean(), getBridgedMethod()) : EMPTY_GROUPS);
 	}
 
 
@@ -152,27 +160,21 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	 * @param providedArgs optional list of argument values to match by type
 	 * @return a Mono with a {@link HandlerResult}
 	 */
-	@SuppressWarnings({"KotlinInternalInJava", "unchecked"})
+	@SuppressWarnings("unchecked")
 	public Mono<HandlerResult> invoke(
 			ServerWebExchange exchange, BindingContext bindingContext, Object... providedArgs) {
 
 		return getMethodArgumentValues(exchange, bindingContext, providedArgs).flatMap(args -> {
-			Class<?>[] groups = getValidationGroups();
 			if (shouldValidateArguments() && this.methodValidator != null) {
 				this.methodValidator.applyArgumentValidation(
-						getBean(), getBridgedMethod(), getMethodParameters(), args, groups);
+						getBean(), getBridgedMethod(), getMethodParameters(), args, this.validationGroups);
 			}
 			Object value;
 			Method method = getBridgedMethod();
 			boolean isSuspendingFunction = KotlinDetector.isSuspendingFunction(method);
 			try {
 				if (KotlinDetector.isKotlinReflectPresent() && KotlinDetector.isKotlinType(method.getDeclaringClass())) {
-					if (isSuspendingFunction) {
-						value = CoroutinesUtils.invokeSuspendingFunction(method, getBean(), args);
-					}
-					else {
-						value = KotlinDelegate.invokeFunction(method, getBean(), args);
-					}
+					value = KotlinDelegate.invokeFunction(method, getBean(), args, isSuspendingFunction, exchange);
 				}
 				else {
 					value = method.invoke(getBean(), args);
@@ -258,11 +260,6 @@ public class InvocableHandlerMethod extends HandlerMethod {
 		}
 	}
 
-	private Class<?>[] getValidationGroups() {
-		return ((shouldValidateArguments() || shouldValidateReturnValue()) && this.methodValidator != null ?
-				this.methodValidator.determineValidationGroups(getBean(), getBridgedMethod()) : EMPTY_GROUPS);
-	}
-
 	private static boolean isAsyncVoidReturnType(MethodParameter returnType, @Nullable ReactiveAdapter adapter) {
 		if (adapter != null && adapter.supportsEmpty()) {
 			if (adapter.isNoValue()) {
@@ -295,28 +292,63 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	 */
 	private static class KotlinDelegate {
 
+		// Copy of CoWebFilter.COROUTINE_CONTEXT_ATTRIBUTE value to avoid compilation errors in Eclipse
+		private static final String COROUTINE_CONTEXT_ATTRIBUTE = "org.springframework.web.server.CoWebFilter.context";
+
 		@Nullable
 		@SuppressWarnings("deprecation")
-		public static Object invokeFunction(Method method, Object target, Object[] args) {
-			KFunction<?> function = Objects.requireNonNull(ReflectJvmMapping.getKotlinFunction(method));
-			if (method.isAccessible() && !KCallablesJvm.isAccessible(function)) {
-				KCallablesJvm.setAccessible(function, true);
-			}
-			Map<KParameter, Object> argMap = CollectionUtils.newHashMap(args.length + 1);
-			int index = 0;
-			for (KParameter parameter : function.getParameters()) {
-				switch (parameter.getKind()) {
-					case INSTANCE -> argMap.put(parameter, target);
-					case VALUE -> {
-						if (!parameter.isOptional() || args[index] != null) {
-							argMap.put(parameter, args[index]);
-						}
-						index++;
-					}
+		public static Object invokeFunction(Method method, Object target, Object[] args, boolean isSuspendingFunction,
+				ServerWebExchange exchange) throws InvocationTargetException, IllegalAccessException {
+
+			if (isSuspendingFunction) {
+				Object coroutineContext = exchange.getAttribute(COROUTINE_CONTEXT_ATTRIBUTE);
+				if (coroutineContext == null) {
+					return CoroutinesUtils.invokeSuspendingFunction(method, target, args);
+				}
+				else {
+					return CoroutinesUtils.invokeSuspendingFunction((CoroutineContext) coroutineContext, method, target, args);
 				}
 			}
-			return function.callBy(argMap);
+			else {
+				KFunction<?> function = ReflectJvmMapping.getKotlinFunction(method);
+				// For property accessors
+				if (function == null) {
+					return method.invoke(target, args);
+				}
+				if (method.isAccessible() && !KCallablesJvm.isAccessible(function)) {
+					KCallablesJvm.setAccessible(function, true);
+				}
+				Map<KParameter, Object> argMap = CollectionUtils.newHashMap(args.length + 1);
+				int index = 0;
+				for (KParameter parameter : function.getParameters()) {
+					switch (parameter.getKind()) {
+						case INSTANCE -> argMap.put(parameter, target);
+						case VALUE, EXTENSION_RECEIVER -> {
+							Object arg = args[index];
+							if (!(parameter.isOptional() && arg == null)) {
+								if (parameter.getType().getClassifier() instanceof KClass<?> kClass) {
+									Class<?> javaClass = JvmClassMappingKt.getJavaClass(kClass);
+									if (KotlinDetector.isInlineClass(javaClass)
+											&& !(parameter.getType().isMarkedNullable() && arg == null)) {
+										argMap.put(parameter, KClasses.getPrimaryConstructor(kClass).call(arg));
+									}
+									else {
+										argMap.put(parameter, arg);
+									}
+								}
+								else {
+									argMap.put(parameter, arg);
+								}
+							}
+							index++;
+						}
+					}
+				}
+				Object result = function.callBy(argMap);
+				return (result == Unit.INSTANCE ? null : result);
+			}
 		}
+
 	}
 
 }

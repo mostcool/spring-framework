@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import org.springframework.core.task.TaskRejectedException;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.Trigger;
+import org.springframework.scheduling.support.DelegatingErrorHandlingRunnable;
 import org.springframework.scheduling.support.TaskUtils;
 import org.springframework.util.ErrorHandler;
 
@@ -45,6 +46,11 @@ import org.springframework.util.ErrorHandler;
  * a single scheduler thread and executing every scheduled task in an individual
  * separate thread. This is an attractive choice with virtual threads on JDK 21,
  * expecting common usage with {@link #setVirtualThreads setVirtualThreads(true)}.
+ *
+ * <p><b>NOTE: Scheduling with a fixed delay enforces execution on the single
+ * scheduler thread, in order to provide traditional fixed-delay semantics!</b>
+ * Prefer the use of fixed rates or cron triggers instead which are a better fit
+ * with this thread-per-task scheduler variant.
  *
  * <p>Supports a graceful shutdown through {@link #setTaskTerminationTimeout},
  * at the expense of task tracking overhead per execution thread at runtime.
@@ -84,6 +90,14 @@ import org.springframework.util.ErrorHandler;
 @SuppressWarnings("serial")
 public class SimpleAsyncTaskScheduler extends SimpleAsyncTaskExecutor implements TaskScheduler,
 		ApplicationContextAware, SmartLifecycle, ApplicationListener<ContextClosedEvent> {
+
+	/**
+	 * The default phase for an executor {@link SmartLifecycle}: {@code Integer.MAX_VALUE / 2}.
+	 * @since 6.2
+	 * @see #getPhase()
+	 * @see ExecutorConfigurationSupport#DEFAULT_PHASE
+	 */
+	public static final int DEFAULT_PHASE = ExecutorConfigurationSupport.DEFAULT_PHASE;
 
 	private static final TimeUnit NANO = TimeUnit.NANOSECONDS;
 
@@ -178,7 +192,11 @@ public class SimpleAsyncTaskScheduler extends SimpleAsyncTaskExecutor implements
 	}
 
 	private Runnable scheduledTask(Runnable task) {
-		return () -> execute(task);
+		return () -> execute(new DelegatingErrorHandlingRunnable(task, TaskUtils.LOG_AND_PROPAGATE_ERROR_HANDLER));
+	}
+
+	private Runnable taskOnSchedulerThread(Runnable task) {
+		return new DelegatingErrorHandlingRunnable(task, TaskUtils.getDefaultErrorHandler(true));
 	}
 
 
@@ -234,7 +252,8 @@ public class SimpleAsyncTaskScheduler extends SimpleAsyncTaskExecutor implements
 	public ScheduledFuture<?> scheduleWithFixedDelay(Runnable task, Instant startTime, Duration delay) {
 		Duration initialDelay = Duration.between(this.clock.instant(), startTime);
 		try {
-			return this.scheduledExecutor.scheduleWithFixedDelay(scheduledTask(task),
+			// Blocking task on scheduler thread for fixed delay semantics
+			return this.scheduledExecutor.scheduleWithFixedDelay(taskOnSchedulerThread(task),
 					NANO.convert(initialDelay), NANO.convert(delay), NANO);
 		}
 		catch (RejectedExecutionException ex) {
@@ -245,7 +264,8 @@ public class SimpleAsyncTaskScheduler extends SimpleAsyncTaskExecutor implements
 	@Override
 	public ScheduledFuture<?> scheduleWithFixedDelay(Runnable task, Duration delay) {
 		try {
-			return this.scheduledExecutor.scheduleWithFixedDelay(scheduledTask(task),
+			// Blocking task on scheduler thread for fixed delay semantics
+			return this.scheduledExecutor.scheduleWithFixedDelay(taskOnSchedulerThread(task),
 					0, NANO.convert(delay), NANO);
 		}
 		catch (RejectedExecutionException ex) {

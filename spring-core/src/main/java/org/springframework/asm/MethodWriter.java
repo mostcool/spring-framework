@@ -651,7 +651,7 @@ final class MethodWriter extends MethodVisitor {
   @Override
   public AnnotationVisitor visitAnnotationDefault() {
     defaultValue = new ByteVector();
-    return new AnnotationWriter(symbolTable, /* useNamedValues = */ false, defaultValue, null);
+    return new AnnotationWriter(symbolTable, /* useNamedValues= */ false, defaultValue, null);
   }
 
   @Override
@@ -694,7 +694,7 @@ final class MethodWriter extends MethodVisitor {
     if (visible) {
       if (lastRuntimeVisibleParameterAnnotations == null) {
         lastRuntimeVisibleParameterAnnotations =
-            new AnnotationWriter[Type.getArgumentTypes(descriptor).length];
+            new AnnotationWriter[Type.getArgumentCount(descriptor)];
       }
       return lastRuntimeVisibleParameterAnnotations[parameter] =
           AnnotationWriter.create(
@@ -702,7 +702,7 @@ final class MethodWriter extends MethodVisitor {
     } else {
       if (lastRuntimeInvisibleParameterAnnotations == null) {
         lastRuntimeInvisibleParameterAnnotations =
-            new AnnotationWriter[Type.getArgumentTypes(descriptor).length];
+            new AnnotationWriter[Type.getArgumentCount(descriptor)];
       }
       return lastRuntimeInvisibleParameterAnnotations[parameter] =
           AnnotationWriter.create(
@@ -1519,14 +1519,14 @@ final class MethodWriter extends MethodVisitor {
       return lastCodeRuntimeVisibleTypeAnnotation =
           new AnnotationWriter(
               symbolTable,
-              /* useNamedValues = */ true,
+              /* useNamedValues= */ true,
               typeAnnotation,
               lastCodeRuntimeVisibleTypeAnnotation);
     } else {
       return lastCodeRuntimeInvisibleTypeAnnotation =
           new AnnotationWriter(
               symbolTable,
-              /* useNamedValues = */ true,
+              /* useNamedValues= */ true,
               typeAnnotation,
               lastCodeRuntimeInvisibleTypeAnnotation);
     }

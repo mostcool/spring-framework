@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,7 +54,6 @@ public class SseEmitter extends ResponseBodyEmitter {
 	 * Create a new SseEmitter instance.
 	 */
 	public SseEmitter() {
-		super();
 	}
 
 	/**
@@ -237,6 +236,9 @@ public class SseEmitter extends ResponseBodyEmitter {
 		public SseEventBuilder data(Object object, @Nullable MediaType mediaType) {
 			append("data:");
 			saveAppendedText();
+			if (object instanceof String text) {
+				object = StringUtils.replace(text, "\n", "\ndata:");
+			}
 			this.dataToSend.add(new DataWithMediaType(object, mediaType));
 			append('\n');
 			return this;

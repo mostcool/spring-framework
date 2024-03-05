@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.KotlinDetector;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.http.codec.HttpMessageReader;
 import org.springframework.http.codec.ServerCodecConfigurer;
@@ -47,6 +48,7 @@ import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.reactive.HandlerResult;
 import org.springframework.web.reactive.result.method.InvocableHandlerMethod;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 /**
  * Supports the invocation of
@@ -60,6 +62,16 @@ public class RequestMappingHandlerAdapter
 		implements HandlerAdapter, DispatchExceptionHandler, ApplicationContextAware, InitializingBean {
 
 	private static final Log logger = LogFactory.getLog(RequestMappingHandlerAdapter.class);
+
+	/**
+	 * Log category to use for network failure after a client has gone away.
+	 * @see DisconnectedClientHelper
+	 */
+	private static final String DISCONNECTED_CLIENT_LOG_CATEGORY =
+			"org.springframework.web.reactive.result.method.annotation.DisconnectedClient";
+
+	private static final DisconnectedClientHelper disconnectedClientHelper =
+			new DisconnectedClientHelper(DISCONNECTED_CLIENT_LOG_CATEGORY);
 
 
 	private List<HttpMessageReader<?>> messageReaders = Collections.emptyList();
@@ -298,10 +310,12 @@ public class RequestMappingHandlerAdapter
 				return invocable.invoke(exchange, bindingContext, arguments);
 			}
 			catch (Throwable invocationEx) {
-				// Any other than the original exception (or a cause) is unintended here,
-				// probably an accident (e.g. failed assertion or the like).
-				if (!exceptions.contains(invocationEx) && logger.isWarnEnabled()) {
-					logger.warn(exchange.getLogPrefix() + "Failure in @ExceptionHandler " + invocable, invocationEx);
+				if (!disconnectedClientHelper.checkAndLogClientDisconnectedException(invocationEx)) {
+					// Any other than the original exception (or a cause) is unintended here,
+					// probably an accident (e.g. failed assertion or the like).
+					if (!exceptions.contains(invocationEx) && logger.isWarnEnabled()) {
+						logger.warn(exchange.getLogPrefix() + "Failure in @ExceptionHandler " + invocable, invocationEx);
+					}
 				}
 			}
 		}
@@ -315,7 +329,8 @@ public class RequestMappingHandlerAdapter
 
 
 	/**
-	 * Match methods with a return type without an adapter in {@link ReactiveAdapterRegistry}.
+	 * Match methods with a return type without an adapter in {@link ReactiveAdapterRegistry}
+	 * which are not suspending functions.
 	 */
 	private record NonReactiveHandlerMethodPredicate(ReactiveAdapterRegistry adapterRegistry)
 			implements Predicate<HandlerMethod> {
@@ -323,7 +338,8 @@ public class RequestMappingHandlerAdapter
 		@Override
 		public boolean test(HandlerMethod handlerMethod) {
 			Class<?> returnType = handlerMethod.getReturnType().getParameterType();
-			return (this.adapterRegistry.getAdapter(returnType) == null);
+			return (this.adapterRegistry.getAdapter(returnType) == null
+					&& !KotlinDetector.isSuspendingFunction(handlerMethod.getMethod()));
 		}
 	}
 

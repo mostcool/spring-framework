@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import kotlin.reflect.KFunction;
 import kotlin.reflect.KParameter;
 import kotlin.reflect.jvm.ReflectJvmMapping;
 
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.ConversionNotSupportedException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.config.BeanExpressionContext;
@@ -132,22 +133,12 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 		}
 
 		if (binderFactory != null && (arg != null || !hasDefaultValue)) {
-			WebDataBinder binder = binderFactory.createBinder(webRequest, null, namedValueInfo.name);
-			try {
-				arg = binder.convertIfNecessary(arg, parameter.getParameterType(), parameter);
-			}
-			catch (ConversionNotSupportedException ex) {
-				throw new MethodArgumentConversionNotSupportedException(arg, ex.getRequiredType(),
-						namedValueInfo.name, parameter, ex.getCause());
-			}
-			catch (TypeMismatchException ex) {
-				throw new MethodArgumentTypeMismatchException(arg, ex.getRequiredType(),
-						namedValueInfo.name, parameter, ex.getCause());
-			}
+			arg = convertIfNecessary(parameter, webRequest, binderFactory, namedValueInfo, arg);
 			// Check for null value after conversion of incoming argument value
 			if (arg == null) {
 				if (namedValueInfo.defaultValue != null) {
 					arg = resolveEmbeddedValuesAndExpressions(namedValueInfo.defaultValue);
+					arg = convertIfNecessary(parameter, webRequest, binderFactory, namedValueInfo, arg);
 				}
 				else if (namedValueInfo.required && !nestedParameter.isOptional()) {
 					handleMissingValueAfterConversion(namedValueInfo.name, nestedParameter, webRequest);
@@ -189,9 +180,10 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 		if (info.name.isEmpty()) {
 			name = parameter.getParameterName();
 			if (name == null) {
-				throw new IllegalArgumentException(
-						"Name for argument of type [" + parameter.getNestedParameterType().getName() +
-						"] not specified, and parameter name information not found in class file either.");
+				throw new IllegalArgumentException("""
+						Name for argument of type [%s] not specified, and parameter name information not \
+						available via reflection. Ensure that the compiler uses the '-parameters' flag."""
+							.formatted(parameter.getNestedParameterType().getName()));
 			}
 		}
 		String defaultValue = (ValueConstants.DEFAULT_NONE.equals(info.defaultValue) ? null : info.defaultValue);
@@ -272,7 +264,7 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 	@Nullable
 	private Object handleNullValue(String name, @Nullable Object value, Class<?> paramType) {
 		if (value == null) {
-			if (Boolean.TYPE.equals(paramType)) {
+			if (paramType == boolean.class) {
 				return Boolean.FALSE;
 			}
 			else if (paramType.isPrimitive()) {
@@ -282,6 +274,30 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 			}
 		}
 		return value;
+	}
+
+	@Nullable
+	private static Object convertIfNecessary(
+			MethodParameter parameter, NativeWebRequest webRequest, WebDataBinderFactory binderFactory,
+			NamedValueInfo namedValueInfo, @Nullable Object arg) throws Exception {
+
+		WebDataBinder binder = binderFactory.createBinder(webRequest, null, namedValueInfo.name);
+		Class<?> parameterType = parameter.getParameterType();
+		if (KotlinDetector.isKotlinPresent() && KotlinDetector.isInlineClass(parameterType)) {
+			parameterType = BeanUtils.findPrimaryConstructor(parameterType).getParameterTypes()[0];
+		}
+		try {
+			arg = binder.convertIfNecessary(arg, parameterType, parameter);
+		}
+		catch (ConversionNotSupportedException ex) {
+			throw new MethodArgumentConversionNotSupportedException(arg, ex.getRequiredType(),
+					namedValueInfo.name, parameter, ex.getCause());
+		}
+		catch (TypeMismatchException ex) {
+			throw new MethodArgumentTypeMismatchException(arg, ex.getRequiredType(),
+					namedValueInfo.name, parameter, ex.getCause());
+		}
+		return arg;
 	}
 
 	/**

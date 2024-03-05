@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ import org.springframework.util.Assert;
  * until a {@code Statement} gets executed, lazily applying the specified transaction
  * settings to the target {@code Connection}.
  *
- * <p>This transaction manager supports nested transactions via the JDBC 3.0
+ * <p>This transaction manager supports nested transactions via the JDBC
  * {@link java.sql.Savepoint} mechanism. The
  * {@link #setNestedTransactionAllowed "nestedTransactionAllowed"} flag defaults
  * to "true", since nested transactions will work without restrictions on JDBC
@@ -478,9 +478,7 @@ public class DataSourceTransactionManager extends AbstractPlatformTransactionMan
 
 		@Override
 		public void flush() {
-			if (TransactionSynchronizationManager.isSynchronizationActive()) {
-				TransactionSynchronizationUtils.triggerFlush();
-			}
+			TransactionSynchronizationUtils.triggerFlush();
 		}
 	}
 

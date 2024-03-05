@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,6 +63,7 @@ import org.springframework.lang.Nullable;
  * @author Keith Donald
  * @author Rob Harrop
  * @author Sam Brannen
+ * @author Sebastien Deleuze
  * @since 1.1
  * @see TypeUtils
  * @see ReflectionUtils
@@ -96,22 +97,28 @@ public abstract class ClassUtils {
 	/** The ".class" file suffix. */
 	public static final String CLASS_FILE_SUFFIX = ".class";
 
+	/** Precomputed value for the combination of private, static and final modifiers. */
+	private static final int NON_OVERRIDABLE_MODIFIER = Modifier.PRIVATE | Modifier.STATIC | Modifier.FINAL;
+
+	/** Precomputed value for the combination of public and protected modifiers. */
+	private static final int OVERRIDABLE_MODIFIER = Modifier.PUBLIC | Modifier.PROTECTED;
+
 
 	/**
 	 * Map with primitive wrapper type as key and corresponding primitive
-	 * type as value, for example: Integer.class -> int.class.
+	 * type as value, for example: {@code Integer.class -> int.class}.
 	 */
 	private static final Map<Class<?>, Class<?>> primitiveWrapperTypeMap = new IdentityHashMap<>(9);
 
 	/**
 	 * Map with primitive type as key and corresponding wrapper
-	 * type as value, for example: int.class -> Integer.class.
+	 * type as value, for example: {@code int.class -> Integer.class}.
 	 */
 	private static final Map<Class<?>, Class<?>> primitiveTypeToWrapperMap = new IdentityHashMap<>(9);
 
 	/**
 	 * Map with primitive type name as key and corresponding primitive
-	 * type as value, for example: "int" -> "int.class".
+	 * type as value, for example: {@code "int" -> int.class}.
 	 */
 	private static final Map<String, Class<?>> primitiveTypeNameMap = new HashMap<>(32);
 
@@ -249,7 +256,7 @@ public abstract class ClassUtils {
 	 * style (e.g. "java.lang.Thread.State" instead of "java.lang.Thread$State").
 	 * @param name the name of the Class
 	 * @param classLoader the class loader to use
-	 * (may be {@code null}, which indicates the default class loader)
+	 * (can be {@code null}, which indicates the default class loader)
 	 * @return a class instance for the supplied name
 	 * @throws ClassNotFoundException if the class was not found
 	 * @throws LinkageError if the class file could not be loaded
@@ -298,7 +305,8 @@ public abstract class ClassUtils {
 		}
 		catch (ClassNotFoundException ex) {
 			int lastDotIndex = name.lastIndexOf(PACKAGE_SEPARATOR);
-			if (lastDotIndex != -1) {
+			int previousDotIndex = name.lastIndexOf(PACKAGE_SEPARATOR, lastDotIndex -1);
+			if (lastDotIndex != -1 && previousDotIndex != -1 && Character.isUpperCase(name.charAt(previousDotIndex + 1))) {
 				String nestedClassName =
 						name.substring(0, lastDotIndex) + NESTED_CLASS_SEPARATOR + name.substring(lastDotIndex + 1);
 				try {
@@ -320,7 +328,7 @@ public abstract class ClassUtils {
 	 * the exceptions thrown in case of class loading failure.
 	 * @param className the name of the Class
 	 * @param classLoader the class loader to use
-	 * (may be {@code null}, which indicates the default class loader)
+	 * (can be {@code null}, which indicates the default class loader)
 	 * @return a class instance for the supplied name
 	 * @throws IllegalArgumentException if the class name was not resolvable
 	 * (that is, the class could not be found or the class file could not be loaded)
@@ -354,7 +362,7 @@ public abstract class ClassUtils {
 	 * one of its dependencies is not present or cannot be loaded.
 	 * @param className the name of the class to check
 	 * @param classLoader the class loader to use
-	 * (may be {@code null} which indicates the default class loader)
+	 * (can be {@code null} which indicates the default class loader)
 	 * @return whether the specified class is present (including all of its
 	 * superclasses and interfaces)
 	 * @throws IllegalStateException if the corresponding class is resolvable but
@@ -381,7 +389,7 @@ public abstract class ClassUtils {
 	 * Check whether the given class is visible in the given ClassLoader.
 	 * @param clazz the class to check (typically an interface)
 	 * @param classLoader the ClassLoader to check against
-	 * (may be {@code null} in which case this method will always return {@code true})
+	 * (can be {@code null} in which case this method will always return {@code true})
 	 */
 	public static boolean isVisible(Class<?> clazz, @Nullable ClassLoader classLoader) {
 		if (classLoader == null) {
@@ -405,7 +413,7 @@ public abstract class ClassUtils {
 	 * i.e. whether it is loaded by the given ClassLoader or a parent of it.
 	 * @param clazz the class to analyze
 	 * @param classLoader the ClassLoader to potentially cache metadata in
-	 * (may be {@code null} which indicates the system class loader)
+	 * (can be {@code null} which indicates the system class loader)
 	 */
 	public static boolean isCacheSafe(Class<?> clazz, @Nullable ClassLoader classLoader) {
 		Assert.notNull(clazz, "Class must not be null");
@@ -542,15 +550,26 @@ public abstract class ClassUtils {
 	}
 
 	/**
+	 * Determine if the given type represents either {@code Void} or {@code void}.
+	 * @param type the type to check
+	 * @return {@code true} if the type represents {@code Void} or {@code void}
+	 * @since 6.1.4
+	 * @see Void
+	 * @see Void#TYPE
+	 */
+	public static boolean isVoidType(Class<?> type) {
+		return (type == void.class || type == Void.class);
+	}
+
+	/**
 	 * Delegate for {@link org.springframework.beans.BeanUtils#isSimpleValueType}.
 	 * Also used by {@link ObjectUtils#nullSafeConciseToString}.
 	 * <p>Check if the given type represents a common "simple" value type:
-	 * a primitive or primitive wrapper, an {@link Enum}, a {@link String}
-	 * or other {@link CharSequence}, a {@link Number}, a {@link Date},
-	 * a {@link Temporal}, a {@link ZoneId} a {@link TimeZone}, a {@link File},
-	 * a {@link Path}, a {@link URI}, a {@link URL}, an {@link InetAddress},
-	 * a {@link Charset}, a {@link Currency}, a {@link Locale}, a {@link UUID},
-	 * a {@link Pattern}, or a {@link Class}.
+	 * primitive or primitive wrapper, {@link Enum}, {@link String} or other
+	 * {@link CharSequence}, {@link Number}, {@link Date}, {@link Temporal},
+	 * {@link ZoneId}, {@link TimeZone}, {@link File}, {@link Path}, {@link URI},
+	 * {@link URL}, {@link InetAddress}, {@link Charset}, {@link Currency},
+	 * {@link Locale}, {@link UUID}, {@link Pattern}, or {@link Class}.
 	 * <p>{@code Void} and {@code void} are not considered simple value types.
 	 * @param type the type to check
 	 * @return whether the given type represents a "simple" value type,
@@ -558,7 +577,7 @@ public abstract class ClassUtils {
 	 * @since 6.1
 	 */
 	public static boolean isSimpleValueType(Class<?> type) {
-		return (Void.class != type && void.class != type &&
+		return (!isVoidType(type) &&
 				(isPrimitiveOrWrapper(type) ||
 				Enum.class.isAssignableFrom(type) ||
 				CharSequence.class.isAssignableFrom(type) ||
@@ -708,7 +727,7 @@ public abstract class ClassUtils {
 	 * in the given collection.
 	 * <p>Basically like {@code AbstractCollection.toString()}, but stripping
 	 * the "class "/"interface " prefix before every class name.
-	 * @param classes a Collection of Class objects (may be {@code null})
+	 * @param classes a Collection of Class objects (can be {@code null})
 	 * @return a String of form "[com.foo.Bar, com.foo.Baz]"
 	 * @see java.util.AbstractCollection#toString()
 	 */
@@ -763,7 +782,7 @@ public abstract class ClassUtils {
 	 * <p>If the class itself is an interface, it gets returned as sole interface.
 	 * @param clazz the class to analyze for interfaces
 	 * @param classLoader the ClassLoader that the interfaces need to be visible in
-	 * (may be {@code null} when accepting all declared interfaces)
+	 * (can be {@code null} when accepting all declared interfaces)
 	 * @return all interfaces that the given object implements as an array
 	 */
 	public static Class<?>[] getAllInterfacesForClass(Class<?> clazz, @Nullable ClassLoader classLoader) {
@@ -798,7 +817,7 @@ public abstract class ClassUtils {
 	 * <p>If the class itself is an interface, it gets returned as sole interface.
 	 * @param clazz the class to analyze for interfaces
 	 * @param classLoader the ClassLoader that the interfaces need to be visible in
-	 * (may be {@code null} when accepting all declared interfaces)
+	 * (can be {@code null} when accepting all declared interfaces)
 	 * @return all interfaces that the given object implements as a Set
 	 */
 	public static Set<Class<?>> getAllInterfacesForClassAsSet(Class<?> clazz, @Nullable ClassLoader classLoader) {
@@ -1000,10 +1019,10 @@ public abstract class ClassUtils {
 		}
 		Class<?> clazz = value.getClass();
 		if (Proxy.isProxyClass(clazz)) {
-			String prefix = clazz.getName() + " implementing ";
+			String prefix = clazz.getTypeName() + " implementing ";
 			StringJoiner result = new StringJoiner(",", prefix, "");
 			for (Class<?> ifc : clazz.getInterfaces()) {
-				result.add(ifc.getName());
+				result.add(ifc.getTypeName());
 			}
 			return result.toString();
 		}
@@ -1127,7 +1146,7 @@ public abstract class ClassUtils {
 	 * fully qualified interface/class name + "." + method name.
 	 * @param method the method
 	 * @param clazz the clazz that the method is being invoked on
-	 * (may be {@code null} to indicate the method's declaring class)
+	 * (can be {@code null} to indicate the method's declaring class)
 	 * @return the qualified name of the method
 	 * @since 4.3.4
 	 */
@@ -1208,7 +1227,7 @@ public abstract class ClassUtils {
 	 * @param clazz the clazz to analyze
 	 * @param methodName the name of the method
 	 * @param paramTypes the parameter types of the method
-	 * (may be {@code null} to indicate any signature)
+	 * (can be {@code null} to indicate any signature)
 	 * @return the method (never {@code null})
 	 * @throws IllegalStateException if the method has not been found
 	 * @see Class#getMethod
@@ -1247,7 +1266,7 @@ public abstract class ClassUtils {
 	 * @param clazz the clazz to analyze
 	 * @param methodName the name of the method
 	 * @param paramTypes the parameter types of the method
-	 * (may be {@code null} to indicate any signature)
+	 * (can be {@code null} to indicate any signature)
 	 * @return the method, or {@code null} if not found
 	 * @see Class#getMethod
 	 */
@@ -1336,13 +1355,14 @@ public abstract class ClassUtils {
 	 * implementation will fall back to returning the originally provided method.
 	 * @param method the method to be invoked, which may come from an interface
 	 * @param targetClass the target class for the current invocation
-	 * (may be {@code null} or may not even implement the method)
+	 * (can be {@code null} or may not even implement the method)
 	 * @return the specific target method, or the original method if the
 	 * {@code targetClass} does not implement it
 	 * @see #getInterfaceMethodIfPossible(Method, Class)
 	 */
 	public static Method getMostSpecificMethod(Method method, @Nullable Class<?> targetClass) {
-		if (targetClass != null && targetClass != method.getDeclaringClass() && isOverridable(method, targetClass)) {
+		if (targetClass != null && targetClass != method.getDeclaringClass() &&
+				(isOverridable(method, targetClass) || !method.getDeclaringClass().isAssignableFrom(targetClass))) {
 			try {
 				if (Modifier.isPublic(method.getModifiers())) {
 					try {
@@ -1406,12 +1426,17 @@ public abstract class ClassUtils {
 	}
 
 	private static Method findInterfaceMethodIfPossible(Method method, Class<?> startClass, Class<?> endClass) {
+		Class<?>[] parameterTypes = null;
 		Class<?> current = startClass;
 		while (current != null && current != endClass) {
-			Class<?>[] ifcs = current.getInterfaces();
-			for (Class<?> ifc : ifcs) {
+			if (parameterTypes == null) {
+				// Since Method#getParameterTypes() clones the array, we lazily retrieve
+				// and cache parameter types to avoid cloning the array multiple times.
+				parameterTypes = method.getParameterTypes();
+			}
+			for (Class<?> ifc : current.getInterfaces()) {
 				try {
-					return ifc.getMethod(method.getName(), method.getParameterTypes());
+					return ifc.getMethod(method.getName(), parameterTypes);
 				}
 				catch (NoSuchMethodException ex) {
 					// ignore
@@ -1448,10 +1473,10 @@ public abstract class ClassUtils {
 	 * @param targetClass the target class to check against
 	 */
 	private static boolean isOverridable(Method method, @Nullable Class<?> targetClass) {
-		if (Modifier.isPrivate(method.getModifiers())) {
+		if ((method.getModifiers() & NON_OVERRIDABLE_MODIFIER) != 0) {
 			return false;
 		}
-		if (Modifier.isPublic(method.getModifiers()) || Modifier.isProtected(method.getModifiers())) {
+		if ((method.getModifiers() & OVERRIDABLE_MODIFIER) != 0) {
 			return true;
 		}
 		return (targetClass == null ||
@@ -1472,7 +1497,7 @@ public abstract class ClassUtils {
 		Assert.notNull(methodName, "Method name must not be null");
 		try {
 			Method method = clazz.getMethod(methodName, args);
-			return Modifier.isStatic(method.getModifiers()) ? method : null;
+			return (Modifier.isStatic(method.getModifiers()) ? method : null);
 		}
 		catch (NoSuchMethodException ex) {
 			return null;

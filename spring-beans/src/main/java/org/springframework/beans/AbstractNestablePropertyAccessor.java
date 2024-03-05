@@ -461,7 +461,9 @@ public abstract class AbstractNestablePropertyAccessor extends AbstractPropertyA
 			ph.setValue(valueToApply);
 		}
 		catch (TypeMismatchException ex) {
-			throw ex;
+			if (!ph.setValueFallbackIfPossible(pv.getValue())) {
+				throw ex;
+			}
 		}
 		catch (InvocationTargetException ex) {
 			PropertyChangeEvent propertyChangeEvent = new PropertyChangeEvent(
@@ -976,11 +978,11 @@ public abstract class AbstractNestablePropertyAccessor extends AbstractPropertyA
 		int length = propertyName.length();
 		for (int i = startIndex; i < length; i++) {
 			switch (propertyName.charAt(i)) {
-				case PropertyAccessor.PROPERTY_KEY_PREFIX_CHAR:
+				case PropertyAccessor.PROPERTY_KEY_PREFIX_CHAR -> {
 					// The property name contains opening prefix(es)...
 					unclosedPrefixes++;
-					break;
-				case PropertyAccessor.PROPERTY_KEY_SUFFIX_CHAR:
+				}
+				case PropertyAccessor.PROPERTY_KEY_SUFFIX_CHAR -> {
 					if (unclosedPrefixes == 0) {
 						// No unclosed prefix(es) in the property name (left) ->
 						// this is the suffix we are looking for.
@@ -991,12 +993,11 @@ public abstract class AbstractNestablePropertyAccessor extends AbstractPropertyA
 						// just one that occurred within the property name.
 						unclosedPrefixes--;
 					}
-					break;
+				}
 			}
 		}
 		return -1;
 	}
-
 
 	@Override
 	public String toString() {
@@ -1013,18 +1014,20 @@ public abstract class AbstractNestablePropertyAccessor extends AbstractPropertyA
 	 */
 	protected abstract static class PropertyHandler {
 
+		@Nullable
 		private final Class<?> propertyType;
 
 		private final boolean readable;
 
 		private final boolean writable;
 
-		public PropertyHandler(Class<?> propertyType, boolean readable, boolean writable) {
+		public PropertyHandler(@Nullable Class<?> propertyType, boolean readable, boolean writable) {
 			this.propertyType = propertyType;
 			this.readable = readable;
 			this.writable = writable;
 		}
 
+		@Nullable
 		public Class<?> getPropertyType() {
 			return this.propertyType;
 		}
@@ -1060,6 +1063,10 @@ public abstract class AbstractNestablePropertyAccessor extends AbstractPropertyA
 		public abstract Object getValue() throws Exception;
 
 		public abstract void setValue(@Nullable Object value) throws Exception;
+
+		public boolean setValueFallbackIfPossible(@Nullable Object value) {
+			return false;
+		}
 	}
 
 

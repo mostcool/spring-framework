@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.assertj.core.api.Assertions
 import org.junit.jupiter.api.Test
 import reactor.core.publisher.Flux
@@ -82,6 +83,15 @@ class CoroutinesUtilsTests {
 	}
 
 	@Test
+	fun invokeSuspendingFunctionWithNullableParameter() {
+		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("suspendingFunctionWithNullable", String::class.java, Continuation::class.java)
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, null, null) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isNull()
+		}
+	}
+
+	@Test
 	fun invokeNonSuspendingFunction() {
 		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("nonSuspendingFunction", String::class.java)
 		Assertions.assertThatIllegalArgumentException().isThrownBy { CoroutinesUtils.invokeSuspendingFunction(method, this, "foo") }
@@ -126,7 +136,79 @@ class CoroutinesUtilsTests {
 		Assertions.assertThatIllegalArgumentException().isThrownBy { CoroutinesUtils.invokeSuspendingFunction(context, method, this, "foo") }
 	}
 
+	@Test
+	fun invokeSuspendingFunctionReturningUnit() {
+		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("suspendingUnit", Continuation::class.java)
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isNull()
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionReturningNull() {
+		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("suspendingNullable", Continuation::class.java)
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isNull()
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionWithValueClassParameter() {
+		val method = CoroutinesUtilsTests::class.java.declaredMethods.first { it.name.startsWith("suspendingFunctionWithValueClass") }
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, "foo", null) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingle()).isEqualTo("foo")
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionWithValueClassWithInitParameter() {
+		val method = CoroutinesUtilsTests::class.java.declaredMethods.first { it.name.startsWith("suspendingFunctionWithValueClassWithInit") }
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, "", null) as Mono
+		Assertions.assertThatIllegalArgumentException().isThrownBy {
+			runBlocking {
+				mono.awaitSingle()
+			}
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionWithNullableValueClassParameter() {
+		val method = CoroutinesUtilsTests::class.java.declaredMethods.first { it.name.startsWith("suspendingFunctionWithNullableValueClass") }
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, null, null) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isNull()
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionWithExtension() {
+		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("suspendingFunctionWithExtension",
+			CustomException::class.java, Continuation::class.java)
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, CustomException("foo")) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isEqualTo("foo")
+		}
+	}
+
+	@Test
+	fun invokeSuspendingFunctionWithExtensionAndParameter() {
+		val method = CoroutinesUtilsTests::class.java.getDeclaredMethod("suspendingFunctionWithExtensionAndParameter",
+			CustomException::class.java, Int::class.java, Continuation::class.java)
+		val mono = CoroutinesUtils.invokeSuspendingFunction(method, this, CustomException("foo"), 20) as Mono
+		runBlocking {
+			Assertions.assertThat(mono.awaitSingleOrNull()).isEqualTo("foo-20")
+		}
+	}
+
 	suspend fun suspendingFunction(value: String): String {
+		delay(1)
+		return value
+	}
+
+	suspend fun suspendingFunctionWithNullable(value: String?): String? {
 		delay(1)
 		return value
 	}
@@ -145,5 +227,51 @@ class CoroutinesUtilsTests {
 		Assertions.assertThat(coroutineContext[CoroutineName]?.name).isEqualTo("name")
 		return value
 	}
+
+	suspend fun suspendingUnit() {
+	}
+
+	suspend fun suspendingNullable(): String? {
+		return null
+	}
+
+	suspend fun suspendingFunctionWithValueClass(value: ValueClass): String {
+		delay(1)
+		return value.value
+	}
+
+	suspend fun suspendingFunctionWithValueClassWithInit(value: ValueClassWithInit): String {
+		delay(1)
+		return value.value
+	}
+
+	suspend fun suspendingFunctionWithNullableValueClass(value: ValueClass?): String? {
+		delay(1)
+		return value?.value
+	}
+
+	suspend fun CustomException.suspendingFunctionWithExtension(): String {
+		delay(1)
+		return "${this.message}"
+	}
+
+	suspend fun CustomException.suspendingFunctionWithExtensionAndParameter(limit: Int): String {
+		delay(1)
+		return "${this.message}-$limit"
+	}
+
+	@JvmInline
+	value class ValueClass(val value: String)
+
+	@JvmInline
+	value class ValueClassWithInit(val value: String) {
+		 init {
+		     if (value.isEmpty()) {
+				 throw IllegalArgumentException()
+			 }
+		 }
+	}
+
+	class CustomException(message: String) : Throwable(message)
 
 }

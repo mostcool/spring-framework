@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -136,27 +139,35 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		implements ConfigurableApplicationContext {
 
 	/**
-	 * Name of the MessageSource bean in the factory.
+	 * The name of the {@link MessageSource} bean in the context.
 	 * If none is supplied, message resolution is delegated to the parent.
-	 * @see MessageSource
+	 * @see org.springframework.context.MessageSource
+	 * @see org.springframework.context.support.ResourceBundleMessageSource
+	 * @see org.springframework.context.support.ReloadableResourceBundleMessageSource
+	 * @see #getMessage(MessageSourceResolvable, Locale)
 	 */
 	public static final String MESSAGE_SOURCE_BEAN_NAME = "messageSource";
 
 	/**
-	 * Name of the LifecycleProcessor bean in the factory.
-	 * If none is supplied, a DefaultLifecycleProcessor is used.
-	 * @see org.springframework.context.LifecycleProcessor
-	 * @see org.springframework.context.support.DefaultLifecycleProcessor
-	 */
-	public static final String LIFECYCLE_PROCESSOR_BEAN_NAME = "lifecycleProcessor";
-
-	/**
-	 * Name of the ApplicationEventMulticaster bean in the factory.
-	 * If none is supplied, a default SimpleApplicationEventMulticaster is used.
+	 * The name of the {@link ApplicationEventMulticaster} bean in the context.
+	 * If none is supplied, a {@link SimpleApplicationEventMulticaster} is used.
 	 * @see org.springframework.context.event.ApplicationEventMulticaster
 	 * @see org.springframework.context.event.SimpleApplicationEventMulticaster
+	 * @see #publishEvent(ApplicationEvent)
+	 * @see #addApplicationListener(ApplicationListener)
 	 */
 	public static final String APPLICATION_EVENT_MULTICASTER_BEAN_NAME = "applicationEventMulticaster";
+
+	/**
+	 * The name of the {@link LifecycleProcessor} bean in the context.
+	 * If none is supplied, a {@link DefaultLifecycleProcessor} is used.
+	 * @since 3.0
+	 * @see org.springframework.context.LifecycleProcessor
+	 * @see org.springframework.context.support.DefaultLifecycleProcessor
+	 * @see #start()
+	 * @see #stop()
+	 */
+	public static final String LIFECYCLE_PROCESSOR_BEAN_NAME = "lifecycleProcessor";
 
 
 	static {
@@ -195,8 +206,12 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	/** Flag that indicates whether this context has been closed already. */
 	private final AtomicBoolean closed = new AtomicBoolean();
 
-	/** Synchronization monitor for the "refresh" and "destroy". */
-	private final Object startupShutdownMonitor = new Object();
+	/** Synchronization lock for "refresh" and "close". */
+	private final Lock startupShutdownLock = new ReentrantLock();
+
+	/** Currently active startup/shutdown thread. */
+	@Nullable
+	private volatile Thread startupShutdownThread;
 
 	/** Reference to the JVM shutdown hook, if registered. */
 	@Nullable
@@ -433,8 +448,8 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		if (this.earlyApplicationEvents != null) {
 			this.earlyApplicationEvents.add(applicationEvent);
 		}
-		else {
-			getApplicationEventMulticaster().multicastEvent(applicationEvent, eventType);
+		else if (this.applicationEventMulticaster != null) {
+			this.applicationEventMulticaster.multicastEvent(applicationEvent, eventType);
 		}
 
 		// Publish event via parent context as well...
@@ -568,7 +583,10 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 
 	@Override
 	public void refresh() throws BeansException, IllegalStateException {
-		synchronized (this.startupShutdownMonitor) {
+		this.startupShutdownLock.lock();
+		try {
+			this.startupShutdownThread = Thread.currentThread();
+
 			StartupStep contextRefresh = this.applicationStartup.start("spring.context.refresh");
 
 			// Prepare this context for refreshing.
@@ -587,7 +605,6 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 				StartupStep beanPostProcess = this.applicationStartup.start("spring.context.beans.post-process");
 				// Invoke factory processors registered as beans in the context.
 				invokeBeanFactoryPostProcessors(beanFactory);
-
 				// Register bean processors that intercept bean creation.
 				registerBeanPostProcessors(beanFactory);
 				beanPostProcess.end();
@@ -611,7 +628,7 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 				finishRefresh();
 			}
 
-			catch (BeansException ex) {
+			catch (RuntimeException | Error ex ) {
 				if (logger.isWarnEnabled()) {
 					logger.warn("Exception encountered during context initialization - " +
 							"cancelling refresh attempt: " + ex);
@@ -630,6 +647,10 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 			finally {
 				contextRefresh.end();
 			}
+		}
+		finally {
+			this.startupShutdownThread = null;
+			this.startupShutdownLock.unlock();
 		}
 	}
 
@@ -786,8 +807,9 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	}
 
 	/**
-	 * Initialize the MessageSource.
-	 * Use parent's if none defined in this context.
+	 * Initialize the {@link MessageSource}.
+	 * <p>Uses parent's {@code MessageSource} if none defined in this context.
+	 * @see #MESSAGE_SOURCE_BEAN_NAME
 	 */
 	protected void initMessageSource() {
 		ConfigurableListableBeanFactory beanFactory = getBeanFactory();
@@ -817,8 +839,9 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	}
 
 	/**
-	 * Initialize the ApplicationEventMulticaster.
-	 * Uses SimpleApplicationEventMulticaster if none defined in the context.
+	 * Initialize the {@link ApplicationEventMulticaster}.
+	 * <p>Uses {@link SimpleApplicationEventMulticaster} if none defined in the context.
+	 * @see #APPLICATION_EVENT_MULTICASTER_BEAN_NAME
 	 * @see org.springframework.context.event.SimpleApplicationEventMulticaster
 	 */
 	protected void initApplicationEventMulticaster() {
@@ -841,15 +864,16 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	}
 
 	/**
-	 * Initialize the LifecycleProcessor.
-	 * Uses DefaultLifecycleProcessor if none defined in the context.
+	 * Initialize the {@link LifecycleProcessor}.
+	 * <p>Uses {@link DefaultLifecycleProcessor} if none defined in the context.
+	 * @since 3.0
+	 * @see #LIFECYCLE_PROCESSOR_BEAN_NAME
 	 * @see org.springframework.context.support.DefaultLifecycleProcessor
 	 */
 	protected void initLifecycleProcessor() {
 		ConfigurableListableBeanFactory beanFactory = getBeanFactory();
 		if (beanFactory.containsLocalBean(LIFECYCLE_PROCESSOR_BEAN_NAME)) {
-			this.lifecycleProcessor =
-					beanFactory.getBean(LIFECYCLE_PROCESSOR_BEAN_NAME, LifecycleProcessor.class);
+			this.lifecycleProcessor = beanFactory.getBean(LIFECYCLE_PROCESSOR_BEAN_NAME, LifecycleProcessor.class);
 			if (logger.isTraceEnabled()) {
 				logger.trace("Using LifecycleProcessor [" + this.lifecycleProcessor + "]");
 			}
@@ -909,6 +933,13 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 * initializing all remaining singleton beans.
 	 */
 	protected void finishBeanFactoryInitialization(ConfigurableListableBeanFactory beanFactory) {
+		// Initialize bootstrap executor for this context.
+		if (beanFactory.containsBean(BOOTSTRAP_EXECUTOR_BEAN_NAME) &&
+				beanFactory.isTypeMatch(BOOTSTRAP_EXECUTOR_BEAN_NAME, Executor.class)) {
+			beanFactory.setBootstrapExecutor(
+					beanFactory.getBean(BOOTSTRAP_EXECUTOR_BEAN_NAME, Executor.class));
+		}
+
 		// Initialize conversion service for this context.
 		if (beanFactory.containsBean(CONVERSION_SERVICE_BEAN_NAME) &&
 				beanFactory.isTypeMatch(CONVERSION_SERVICE_BEAN_NAME, ConversionService.class)) {
@@ -966,7 +997,7 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 * after an exception got thrown.
 	 * @param ex the exception that led to the cancellation
 	 */
-	protected void cancelRefresh(BeansException ex) {
+	protected void cancelRefresh(Throwable ex) {
 		this.active.set(false);
 
 		// Reset common introspection caches in Spring's core infrastructure.
@@ -1008,13 +1039,45 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 			this.shutdownHook = new Thread(SHUTDOWN_HOOK_THREAD_NAME) {
 				@Override
 				public void run() {
-					synchronized (startupShutdownMonitor) {
+					if (isStartupShutdownThreadStuck()) {
+						active.set(false);
+						return;
+					}
+					startupShutdownLock.lock();
+					try {
 						doClose();
+					}
+					finally {
+						startupShutdownLock.unlock();
 					}
 				}
 			};
 			Runtime.getRuntime().addShutdownHook(this.shutdownHook);
 		}
+	}
+
+	/**
+	 * Determine whether an active startup/shutdown thread is currently stuck,
+	 * e.g. through a {@code System.exit} call in a user component.
+	 */
+	private boolean isStartupShutdownThreadStuck() {
+		Thread activeThread = this.startupShutdownThread;
+		if (activeThread != null && activeThread.getState() == Thread.State.WAITING) {
+			// Indefinitely waiting: might be Thread.join or the like, or System.exit
+			activeThread.interrupt();
+			try {
+				// Leave just a little bit of time for the interruption to show effect
+				Thread.sleep(1);
+			}
+			catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+			}
+			if (activeThread.getState() == Thread.State.WAITING) {
+				// Interrupted but still waiting: very likely a System.exit call
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -1026,8 +1089,17 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 */
 	@Override
 	public void close() {
-		synchronized (this.startupShutdownMonitor) {
+		if (isStartupShutdownThreadStuck()) {
+			this.active.set(false);
+			return;
+		}
+
+		this.startupShutdownLock.lock();
+		try {
+			this.startupShutdownThread = Thread.currentThread();
+
 			doClose();
+
 			// If we registered a JVM shutdown hook, we don't need it anymore now:
 			// We've already explicitly closed the context.
 			if (this.shutdownHook != null) {
@@ -1038,6 +1110,10 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 					// ignore - VM is already shutting down
 				}
 			}
+		}
+		finally {
+			this.startupShutdownThread = null;
+			this.startupShutdownLock.unlock();
 		}
 	}
 
@@ -1084,11 +1160,19 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 			// Let subclasses do some final clean-up if they wish...
 			onClose();
 
+			// Reset common introspection caches to avoid class reference leaks.
+			resetCommonCaches();
+
 			// Reset local application listeners to pre-refresh state.
 			if (this.earlyApplicationListeners != null) {
 				this.applicationListeners.clear();
 				this.applicationListeners.addAll(this.earlyApplicationListeners);
 			}
+
+			// Reset internal delegates.
+			this.applicationEventMulticaster = null;
+			this.messageSource = null;
+			this.lifecycleProcessor = null;
 
 			// Switch to inactive.
 			this.active.set(false);
