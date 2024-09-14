@@ -54,6 +54,7 @@ import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.support.PersistenceExceptionTranslator;
@@ -90,8 +91,9 @@ import org.springframework.util.CollectionUtils;
  */
 @SuppressWarnings("serial")
 public abstract class AbstractEntityManagerFactoryBean implements
-		FactoryBean<EntityManagerFactory>, BeanClassLoaderAware, BeanFactoryAware, BeanNameAware,
-		InitializingBean, DisposableBean, EntityManagerFactoryInfo, PersistenceExceptionTranslator, Serializable {
+		FactoryBean<EntityManagerFactory>, BeanClassLoaderAware, BeanFactoryAware,
+		BeanNameAware, InitializingBean, SmartInitializingSingleton, DisposableBean,
+		EntityManagerFactoryInfo, PersistenceExceptionTranslator, Serializable {
 
 	/** Logger available to subclasses. */
 	protected final Log logger = LogFactory.getLog(getClass());
@@ -318,6 +320,8 @@ public abstract class AbstractEntityManagerFactoryBean implements
 	 * then block until the JPA provider's bootstrapping completed, if not ready by then.
 	 * For maximum benefit, make sure to avoid early {@code EntityManagerFactory} calls
 	 * in init methods of related beans, even for metadata introspection purposes.
+	 * <p>As of 6.2, JPA initialization is enforced before context refresh completion,
+	 * waiting for asynchronous bootstrapping to complete by then.
 	 * @since 4.3
 	 */
 	public void setBootstrapExecutor(@Nullable AsyncTaskExecutor bootstrapExecutor) {
@@ -403,6 +407,12 @@ public abstract class AbstractEntityManagerFactoryBean implements
 		this.entityManagerFactory = createEntityManagerFactoryProxy(this.nativeEntityManagerFactory);
 	}
 
+	@Override
+	public void afterSingletonsInstantiated() {
+		// Enforce completion of asynchronous JPA initialization before context refresh completion.
+		getNativeEntityManagerFactory();
+	}
+
 	private EntityManagerFactory buildNativeEntityManagerFactory() {
 		EntityManagerFactory emf;
 		try {
@@ -417,7 +427,7 @@ public abstract class AbstractEntityManagerFactoryBean implements
 				if (cause != null) {
 					String message = ex.getMessage();
 					String causeString = cause.toString();
-					if (!message.endsWith(causeString)) {
+					if (message != null && !message.endsWith(causeString)) {
 						ex = new PersistenceException(message + "; nested exception is " + causeString, cause);
 					}
 				}

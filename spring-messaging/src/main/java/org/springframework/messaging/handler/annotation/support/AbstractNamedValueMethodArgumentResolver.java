@@ -76,7 +76,7 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 	protected AbstractNamedValueMethodArgumentResolver(ConversionService conversionService,
 			@Nullable ConfigurableBeanFactory beanFactory) {
 
-		// Fallback on shared ConversionService for now for historic reasons.
+		// Fallback on shared ConversionService for now for historical reasons.
 		// Possibly remove after discussion in gh-23882.
 
 		//noinspection ConstantConditions
@@ -89,6 +89,7 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 
 
 	@Override
+	@Nullable
 	public Object resolveArgument(MethodParameter parameter, Message<?> message) throws Exception {
 		NamedValueInfo namedValueInfo = getNamedValueInfo(parameter);
 		MethodParameter nestedParameter = parameter.nestedIfOptional();
@@ -105,9 +106,9 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 				arg = resolveEmbeddedValuesAndExpressions(namedValueInfo.defaultValue);
 			}
 			else if (namedValueInfo.required && !nestedParameter.isOptional()) {
-				handleMissingValue(namedValueInfo.name, nestedParameter, message);
+				handleMissingValue(resolvedName.toString(), nestedParameter, message);
 			}
-			arg = handleNullValue(namedValueInfo.name, arg, nestedParameter.getNestedParameterType());
+			arg = handleNullValue(resolvedName.toString(), arg, nestedParameter.getNestedParameterType());
 		}
 		else if ("".equals(arg) && namedValueInfo.defaultValue != null) {
 			arg = resolveEmbeddedValuesAndExpressions(namedValueInfo.defaultValue);
@@ -121,7 +122,7 @@ public abstract class AbstractNamedValueMethodArgumentResolver implements Handle
 					arg = resolveEmbeddedValuesAndExpressions(namedValueInfo.defaultValue);
 				}
 				else if (namedValueInfo.required && !nestedParameter.isOptional()) {
-					handleMissingValue(namedValueInfo.name, nestedParameter, message);
+					handleMissingValue(resolvedName.toString(), nestedParameter, message);
 				}
 			}
 		}

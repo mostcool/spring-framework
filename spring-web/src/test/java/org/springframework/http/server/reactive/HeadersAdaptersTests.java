@@ -28,7 +28,6 @@ import java.util.stream.Stream;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.undertow.util.HeaderMap;
 import org.apache.tomcat.util.http.MimeHeaders;
-import org.assertj.core.api.StringAssert;
 import org.eclipse.jetty.http.HttpFields;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -43,8 +42,7 @@ import org.springframework.util.MultiValueMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Named.named;
-import static org.junit.jupiter.params.provider.Arguments.arguments;
+import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 
 /**
  * Tests for {@code HeadersAdapters} {@code MultiValueMap} implementations.
@@ -90,7 +88,7 @@ class HeadersAdaptersTests {
 		headers.add("TestHeader", "first");
 		headers.add("TestHeader", "second");
 		assertThat(headers.getFirst("TestHeader")).isEqualTo("first");
-		assertThat(headers.get("TestHeader"), StringAssert.class).element(0).isEqualTo("first");
+		assertThat(headers.get("TestHeader")).first().isEqualTo("first");
 	}
 
 	@ParameterizedHeadersTest
@@ -130,19 +128,19 @@ class HeadersAdaptersTests {
 
 	@Retention(RetentionPolicy.RUNTIME)
 	@Target(ElementType.METHOD)
-	@ParameterizedTest(name = "[{index}] {0}")
+	@ParameterizedTest
 	@MethodSource("headers")
 	@interface ParameterizedHeadersTest {
 	}
 
 	static Stream<Arguments> headers() {
 		return Stream.of(
-				arguments(named("Map", CollectionUtils.toMultiValueMap(new LinkedCaseInsensitiveMap<>(8, Locale.ENGLISH)))),
-				arguments(named("Netty", new Netty4HeadersAdapter(new DefaultHttpHeaders()))),
-				arguments(named("Netty", new Netty5HeadersAdapter(io.netty5.handler.codec.http.headers.HttpHeaders.newHeaders()))),
-				arguments(named("Tomcat", new TomcatHeadersAdapter(new MimeHeaders()))),
-				arguments(named("Undertow", new UndertowHeadersAdapter(new HeaderMap()))),
-				arguments(named("Jetty", new JettyHeadersAdapter(HttpFields.build())))
+				argumentSet("Map", CollectionUtils.toMultiValueMap(new LinkedCaseInsensitiveMap<>(8, Locale.ENGLISH))),
+				argumentSet("Netty", new Netty4HeadersAdapter(new DefaultHttpHeaders())),
+				argumentSet("Netty", new Netty5HeadersAdapter(io.netty5.handler.codec.http.headers.HttpHeaders.newHeaders())),
+				argumentSet("Tomcat", new TomcatHeadersAdapter(new MimeHeaders())),
+				argumentSet("Undertow", new UndertowHeadersAdapter(new HeaderMap())),
+				argumentSet("Jetty", new JettyHeadersAdapter(HttpFields.build()))
 		);
 	}
 

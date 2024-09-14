@@ -16,8 +16,10 @@
 
 package org.springframework.web.client;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +50,7 @@ import org.springframework.http.converter.json.KotlinSerializationJsonHttpMessag
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.http.converter.smile.MappingJackson2SmileHttpMessageConverter;
 import org.springframework.http.converter.support.AllEncompassingFormHttpMessageConverter;
+import org.springframework.http.converter.yaml.MappingJackson2YamlHttpMessageConverter;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
@@ -60,6 +63,8 @@ import org.springframework.web.util.UriTemplateHandler;
  * Default implementation of {@link RestClient.Builder}.
  *
  * @author Arjen Poutsma
+ * @author Hyoungjune Kim
+ * @author Sebastien Deleuze
  * @since 6.1
  */
 final class DefaultRestClientBuilder implements RestClient.Builder {
@@ -86,6 +91,8 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 
 	private static final boolean jackson2CborPresent;
 
+	private static final boolean jackson2YamlPresent;
+
 
 	static {
 		ClassLoader loader = DefaultRestClientBuilder.class.getClassLoader();
@@ -101,6 +108,7 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 		kotlinSerializationJsonPresent = ClassUtils.isPresent("kotlinx.serialization.json.Json", loader);
 		jackson2SmilePresent = ClassUtils.isPresent("com.fasterxml.jackson.dataformat.smile.SmileFactory", loader);
 		jackson2CborPresent = ClassUtils.isPresent("com.fasterxml.jackson.dataformat.cbor.CBORFactory", loader);
+		jackson2YamlPresent = ClassUtils.isPresent("com.fasterxml.jackson.dataformat.yaml.YAMLFactory", loader);
 	}
 
 	@Nullable
@@ -241,6 +249,12 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 	}
 
 	@Override
+	public RestClient.Builder baseUrl(URI baseUrl) {
+		this.baseUrl = baseUrl.toString();
+		return this;
+	}
+
+	@Override
 	public RestClient.Builder defaultUriVariables(Map<String, ?> defaultUriVariables) {
 		this.defaultUriVariables = defaultUriVariables;
 		return this;
@@ -346,6 +360,14 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 	@Override
 	public RestClient.Builder messageConverters(Consumer<List<HttpMessageConverter<?>>> configurer) {
 		configurer.accept(initMessageConverters());
+		validateConverters(this.messageConverters);
+		return this;
+	}
+
+	@Override
+	public RestClient.Builder messageConverters(List<HttpMessageConverter<?>> messageConverters) {
+		validateConverters(messageConverters);
+		this.messageConverters = Collections.unmodifiableList(messageConverters);
 		return this;
 	}
 
@@ -394,8 +416,16 @@ final class DefaultRestClientBuilder implements RestClient.Builder {
 			if (jackson2CborPresent) {
 				this.messageConverters.add(new MappingJackson2CborHttpMessageConverter());
 			}
+			if (jackson2YamlPresent) {
+				this.messageConverters.add(new MappingJackson2YamlHttpMessageConverter());
+			}
 		}
 		return this.messageConverters;
+	}
+
+	private void validateConverters(@Nullable List<HttpMessageConverter<?>> messageConverters) {
+		Assert.notEmpty(messageConverters, "At least one HttpMessageConverter is required");
+		Assert.noNullElements(messageConverters, "The HttpMessageConverter list must not contain null elements");
 	}
 
 

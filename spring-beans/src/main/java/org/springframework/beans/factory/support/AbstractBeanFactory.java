@@ -160,6 +160,9 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	/** Map from scope identifier String to corresponding Scope. */
 	private final Map<String, Scope> scopes = new LinkedHashMap<>(8);
 
+	/** Application startup metrics. **/
+	private ApplicationStartup applicationStartup = ApplicationStartup.DEFAULT;
+
 	/** Map from bean name to merged RootBeanDefinition. */
 	private final Map<String, RootBeanDefinition> mergedBeanDefinitions = new ConcurrentHashMap<>(256);
 
@@ -170,8 +173,6 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	private final ThreadLocal<Object> prototypesCurrentlyInCreation =
 			new NamedThreadLocal<>("Prototype beans currently in creation");
 
-	/** Application startup metrics. **/
-	private ApplicationStartup applicationStartup = ApplicationStartup.DEFAULT;
 
 	/**
 	 * Create a new AbstractBeanFactory.
@@ -313,6 +314,17 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 						catch (NoSuchBeanDefinitionException ex) {
 							throw new BeanCreationException(mbd.getResourceDescription(), beanName,
 									"'" + beanName + "' depends on missing bean '" + dep + "'", ex);
+						}
+						catch (BeanCreationException ex) {
+							if (requiredType != null) {
+								// Wrap exception with current bean metadata but only if specifically
+								// requested (indicated by required type), not for depends-on cascades.
+								throw new BeanCreationException(mbd.getResourceDescription(), beanName,
+										"Failed to initialize dependency '" + ex.getBeanName() + "' of " +
+												requiredType.getSimpleName() + " bean '" + beanName + "': " +
+												ex.getMessage(), ex);
+							}
+							throw ex;
 						}
 					}
 				}
@@ -523,42 +535,73 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 		// Check manually registered singletons.
 		Object beanInstance = getSingleton(beanName, false);
 		if (beanInstance != null && beanInstance.getClass() != NullBean.class) {
+
+			// Determine target for FactoryBean match if necessary.
 			if (beanInstance instanceof FactoryBean<?> factoryBean) {
 				if (!isFactoryDereference) {
 					Class<?> type = getTypeForFactoryBean(factoryBean);
-					return (type != null && typeToMatch.isAssignableFrom(type));
-				}
-				else {
-					return typeToMatch.isInstance(beanInstance);
-				}
-			}
-			else if (!isFactoryDereference) {
-				if (typeToMatch.isInstance(beanInstance)) {
-					// Direct match for exposed instance?
-					return true;
-				}
-				else if (typeToMatch.hasGenerics() && containsBeanDefinition(beanName)) {
-					// Generics potentially only match on the target class, not on the proxy...
-					RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
-					Class<?> targetType = mbd.getTargetType();
-					if (targetType != null && targetType != ClassUtils.getUserClass(beanInstance)) {
-						// Check raw class match as well, making sure it's exposed on the proxy.
-						Class<?> classToMatch = typeToMatch.resolve();
-						if (classToMatch != null && !classToMatch.isInstance(beanInstance)) {
+					if (type == null) {
+						return false;
+					}
+					if (typeToMatch.isAssignableFrom(type)) {
+						return true;
+					}
+					else if (typeToMatch.hasGenerics() && containsBeanDefinition(beanName)) {
+						RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+						ResolvableType targetType = mbd.targetType;
+						if (targetType == null) {
+							targetType = mbd.factoryMethodReturnType;
+						}
+						if (targetType == null) {
 							return false;
 						}
-						if (typeToMatch.isAssignableFrom(targetType)) {
-							return true;
+						Class<?> targetClass = targetType.resolve();
+						if (targetClass != null && FactoryBean.class.isAssignableFrom(targetClass)) {
+							Class<?> classToMatch = typeToMatch.resolve();
+							if (classToMatch != null && !FactoryBean.class.isAssignableFrom(classToMatch) &&
+									!classToMatch.isAssignableFrom(targetType.toClass())) {
+								return typeToMatch.isAssignableFrom(targetType.getGeneric());
+							}
+						}
+						else {
+							return typeToMatch.isAssignableFrom(targetType);
 						}
 					}
-					ResolvableType resolvableType = mbd.targetType;
-					if (resolvableType == null) {
-						resolvableType = mbd.factoryMethodReturnType;
-					}
-					return (resolvableType != null && typeToMatch.isAssignableFrom(resolvableType));
+					return false;
 				}
 			}
-			return false;
+			else if (isFactoryDereference) {
+				return false;
+			}
+
+			// Actual matching against bean instance...
+			if (typeToMatch.isInstance(beanInstance)) {
+				// Direct match for exposed instance?
+				return true;
+			}
+			else if (typeToMatch.hasGenerics() && containsBeanDefinition(beanName)) {
+				// Generics potentially only match on the target class, not on the proxy...
+				RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+				Class<?> targetType = mbd.getTargetType();
+				if (targetType != null && targetType != ClassUtils.getUserClass(beanInstance)) {
+					// Check raw class match as well, making sure it's exposed on the proxy.
+					Class<?> classToMatch = typeToMatch.resolve();
+					if (classToMatch != null && !classToMatch.isInstance(beanInstance)) {
+						return false;
+					}
+					if (typeToMatch.isAssignableFrom(targetType)) {
+						return true;
+					}
+				}
+				ResolvableType resolvableType = mbd.targetType;
+				if (resolvableType == null) {
+					resolvableType = mbd.factoryMethodReturnType;
+				}
+				return (resolvableType != null && typeToMatch.isAssignableFrom(resolvableType));
+			}
+			else {
+				return false;
+			}
 		}
 		else if (containsSingleton(beanName) && !containsBeanDefinition(beanName)) {
 			// null instance registered
@@ -1054,7 +1097,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 
 	@Override
 	public void setApplicationStartup(ApplicationStartup applicationStartup) {
-		Assert.notNull(applicationStartup, "applicationStartup must not be null");
+		Assert.notNull(applicationStartup, "ApplicationStartup must not be null");
 		this.applicationStartup = applicationStartup;
 	}
 
@@ -1650,7 +1693,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	 * already. The implementation is allowed to instantiate the target factory bean if
 	 * {@code allowInit} is {@code true} and the type cannot be determined another way;
 	 * otherwise it is restricted to introspecting signatures and related metadata.
-	 * <p>If no {@link FactoryBean#OBJECT_TYPE_ATTRIBUTE} if set on the bean definition
+	 * <p>If no {@link FactoryBean#OBJECT_TYPE_ATTRIBUTE} is set on the bean definition
 	 * and {@code allowInit} is {@code true}, the default implementation will create
 	 * the FactoryBean via {@code getBean} to call its {@code getObjectType} method.
 	 * Subclasses are encouraged to optimize this, typically by inspecting the generic
@@ -1669,9 +1712,15 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	 * @see #getBean(String)
 	 */
 	protected ResolvableType getTypeForFactoryBean(String beanName, RootBeanDefinition mbd, boolean allowInit) {
-		ResolvableType result = getTypeForFactoryBeanFromAttributes(mbd);
-		if (result != ResolvableType.NONE) {
-			return result;
+		try {
+			ResolvableType result = getTypeForFactoryBeanFromAttributes(mbd);
+			if (result != ResolvableType.NONE) {
+				return result;
+			}
+		}
+		catch (IllegalArgumentException ex) {
+			throw new BeanDefinitionStoreException(mbd.getResourceDescription(), beanName,
+					String.valueOf(ex.getMessage()));
 		}
 
 		if (allowInit && mbd.isSingleton()) {

@@ -112,9 +112,16 @@ class InvocableHandlerMethodKotlinTests {
 	@Test
 	fun privateController() {
 		this.resolvers.add(stubResolver("foo"))
-		val method = PrivateCoroutinesController::singleArg.javaMethod!!
-		val result = invoke(PrivateCoroutinesController(), method,"foo")
+		val method = PrivateController::singleArg.javaMethod!!
+		val result = invoke(PrivateController(), method,"foo")
 		assertHandlerResultValue(result, "success:foo")
+	}
+
+	@Test
+	fun privateFunction() {
+		val method = PrivateController::class.java.getDeclaredMethod("private")
+		val result = invoke(PrivateController(), method)
+		assertHandlerResultValue(result, "private")
 	}
 
 	@Test
@@ -199,6 +206,13 @@ class InvocableHandlerMethodKotlinTests {
 	}
 
 	@Test
+	fun valueClassReturnValue() {
+		val method = ValueClassController::valueClassReturnValue.javaMethod!!
+		val result = invoke(ValueClassController(), method,)
+		assertHandlerResultValue(result, "foo")
+	}
+
+	@Test
 	fun valueClassWithDefaultValue() {
 		this.resolvers.add(stubResolver(null, Double::class.java))
 		val method = ValueClassController::valueClassWithDefault.javaMethod!!
@@ -220,6 +234,14 @@ class InvocableHandlerMethodKotlinTests {
 		val method = ValueClassController::valueClassWithNullable.javaMethod!!
 		val result = invoke(ValueClassController(), method, null)
 		assertHandlerResultValue(result, "null")
+	}
+
+	@Test
+	fun valueClassWithPrivateConstructor() {
+		this.resolvers.add(stubResolver(1L, Long::class.java))
+		val method = ValueClassController::valueClassWithPrivateConstructor.javaMethod!!
+		val result = invoke(ValueClassController(), method, 1L)
+		assertHandlerResultValue(result, "1")
 	}
 
 	@Test
@@ -247,6 +269,15 @@ class InvocableHandlerMethodKotlinTests {
 			.resolveMethod()
 		val result = invoke(ExtensionHandler(), method)
 		assertHandlerResultValue(result, "foo-20")
+	}
+
+	@Test
+	fun genericParameter() {
+		val horse = Animal("horse")
+		this.resolvers.add(stubResolver(horse))
+		val method = AnimalController::handle.javaMethod!!
+		val result = invoke(AnimalController(), method, null)
+		assertHandlerResultValue(result, horse.name)
 	}
 
 
@@ -313,12 +344,14 @@ class InvocableHandlerMethodKotlinTests {
 		}
 	}
 
-	private class PrivateCoroutinesController {
+	private class PrivateController {
 
 		suspend fun singleArg(q: String?): String {
 			delay(1)
 			return "success:$q"
 		}
+
+		private fun private() = "private"
 	}
 
 	class DefaultValueController {
@@ -350,6 +383,9 @@ class InvocableHandlerMethodKotlinTests {
 		fun valueClass(limit: LongValueClass) =
 			"${limit.value}"
 
+		fun valueClassReturnValue() =
+			StringValueClass("foo")
+
 		fun valueClassWithDefault(limit: DoubleValueClass = DoubleValueClass(3.1)) =
 			"${limit.value}"
 
@@ -359,6 +395,8 @@ class InvocableHandlerMethodKotlinTests {
 		fun valueClassWithNullable(limit: LongValueClass?) =
 			"${limit?.value}"
 
+		fun valueClassWithPrivateConstructor(limit: ValueClassWithPrivateConstructor) =
+			"${limit.value}"
 	}
 
 	class PropertyAccessorController {
@@ -379,6 +417,22 @@ class InvocableHandlerMethodKotlinTests {
 		}
 	}
 
+	private abstract class GenericController<T : Named> {
+
+		fun handle(named: T) = named.name
+	}
+
+	private class AnimalController : GenericController<Animal>()
+
+	interface Named {
+		val name: String
+	}
+
+	data class Animal(override val name: String) : Named
+
+	@JvmInline
+	value class StringValueClass(val value: String)
+
 	@JvmInline
 	value class LongValueClass(val value: Long)
 
@@ -391,6 +445,13 @@ class InvocableHandlerMethodKotlinTests {
 			if (value.isEmpty()) {
 				throw IllegalArgumentException()
 			}
+		}
+	}
+
+	@JvmInline
+	value class ValueClassWithPrivateConstructor private constructor(val value: Long) {
+		companion object {
+			fun from(value: Long) = ValueClassWithPrivateConstructor(value)
 		}
 	}
 

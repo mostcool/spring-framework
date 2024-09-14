@@ -15,6 +15,7 @@ dependencies {
 	optional("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor")
 	optional("com.fasterxml.jackson.dataformat:jackson-dataformat-smile")
 	optional("com.fasterxml.jackson.dataformat:jackson-dataformat-xml")
+	optional("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
 	optional("com.fasterxml.woodstox:woodstox-core")
 	optional("com.google.code.gson:gson")
 	optional("com.google.protobuf:protobuf-java-util")
@@ -71,6 +72,7 @@ dependencies {
 		because("needed by Netty's SelfSignedCertificate on JDK 15+")
 	}
 	testFixturesImplementation("org.eclipse.jetty.ee10.websocket:jetty-ee10-websocket-jetty-server")
+	testFixturesImplementation("org.eclipse.jetty.websocket:jetty-websocket-jetty-server")
 	testImplementation(project(":spring-core-test"))
 	testImplementation(testFixtures(project(":spring-beans")))
 	testImplementation(testFixtures(project(":spring-context")))

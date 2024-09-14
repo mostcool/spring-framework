@@ -45,9 +45,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.http.client.reactive.ClientHttpRequest;
 import org.springframework.lang.Nullable;
+import org.springframework.test.json.JsonAssert;
+import org.springframework.test.json.JsonComparator;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.util.AssertionErrors;
 import org.springframework.test.util.ExceptionCollector;
-import org.springframework.test.util.JsonExpectationsHelper;
 import org.springframework.test.util.XmlExpectationsHelper;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
@@ -69,6 +71,7 @@ import org.springframework.web.util.UriBuilderFactory;
  * @author Rossen Stoyanchev
  * @author Sam Brannen
  * @author Michał Rowicki
+ * @author Sebastien Deleuze
  * @since 5.0
  */
 class DefaultWebTestClient implements WebTestClient {
@@ -504,7 +507,14 @@ class DefaultWebTestClient implements WebTestClient {
 
 		@Override
 		public <T> FluxExchangeResult<T> returnResult(ParameterizedTypeReference<T> elementTypeRef) {
-			Flux<T> body = this.response.bodyToFlux(elementTypeRef);
+			Flux<T> body;
+			if (elementTypeRef.getType().equals(Void.class)) {
+				this.response.releaseBody().block();
+				body = Flux.empty();
+			}
+			else {
+				body = this.response.bodyToFlux(elementTypeRef);
+			}
 			return new FluxExchangeResult<>(this.exchangeResult, body);
 		}
 
@@ -658,10 +668,22 @@ class DefaultWebTestClient implements WebTestClient {
 		}
 
 		@Override
+		@Deprecated(since = "6.2")
 		public BodyContentSpec json(String json, boolean strict) {
+			JsonCompareMode compareMode = (strict ? JsonCompareMode.STRICT : JsonCompareMode.LENIENT);
+			return json(json, compareMode);
+		}
+
+		@Override
+		public BodyContentSpec json(String expectedJson, JsonCompareMode compareMode) {
+			return json(expectedJson, JsonAssert.comparator(compareMode));
+		}
+
+		@Override
+		public BodyContentSpec json(String expectedJson, JsonComparator comparator) {
 			this.result.assertWithDiagnostics(() -> {
 				try {
-					new JsonExpectationsHelper().assertJsonEqual(json, getBodyAsString(), strict);
+					comparator.assertIsMatch(expectedJson, getBodyAsString());
 				}
 				catch (Exception ex) {
 					throw new AssertionError("JSON parsing error", ex);

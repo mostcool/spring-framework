@@ -26,6 +26,7 @@ import kotlin.jvm.JvmClassMappingKt;
 import kotlin.reflect.KClass;
 import kotlin.reflect.KFunction;
 import kotlin.reflect.KParameter;
+import kotlin.reflect.KType;
 import kotlin.reflect.full.KClasses;
 import kotlin.reflect.jvm.KCallablesJvm;
 import kotlin.reflect.jvm.ReflectJvmMapping;
@@ -279,7 +280,6 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 	/**
 	 * Invoke the given Kotlin coroutine suspended function.
-	 *
 	 * <p>The default implementation invokes
 	 * {@link CoroutinesUtils#invokeSuspendingFunction(Method, Object, Object...)},
 	 * but subclasses can override this method to use
@@ -291,20 +291,21 @@ public class InvocableHandlerMethod extends HandlerMethod {
 		return CoroutinesUtils.invokeSuspendingFunction(method, target, args);
 	}
 
+
 	/**
 	 * Inner class to avoid a hard dependency on Kotlin at runtime.
 	 */
 	private static class KotlinDelegate {
 
 		@Nullable
-		@SuppressWarnings("deprecation")
-		public static Object invokeFunction(Method method, Object target, Object[] args) throws InvocationTargetException, IllegalAccessException {
+		@SuppressWarnings({"deprecation", "DataFlowIssue"})
+		public static Object invokeFunction(Method method, Object target, Object[] args) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
 			KFunction<?> function = ReflectJvmMapping.getKotlinFunction(method);
 			// For property accessors
 			if (function == null) {
 				return method.invoke(target, args);
 			}
-			if (method.isAccessible() && !KCallablesJvm.isAccessible(function)) {
+			if (!KCallablesJvm.isAccessible(function)) {
 				KCallablesJvm.setAccessible(function, true);
 			}
 			Map<KParameter, Object> argMap = CollectionUtils.newHashMap(args.length + 1);
@@ -315,28 +316,27 @@ public class InvocableHandlerMethod extends HandlerMethod {
 					case VALUE, EXTENSION_RECEIVER -> {
 						Object arg = args[index];
 						if (!(parameter.isOptional() && arg == null)) {
-							if (parameter.getType().getClassifier() instanceof KClass<?> kClass) {
-								Class<?> javaClass = JvmClassMappingKt.getJavaClass(kClass);
-								if (KotlinDetector.isInlineClass(javaClass)
-										&& !(parameter.getType().isMarkedNullable() && arg == null)) {
-									argMap.put(parameter, KClasses.getPrimaryConstructor(kClass).call(arg));
+							KType type = parameter.getType();
+							if (!(type.isMarkedNullable() && arg == null) && type.getClassifier() instanceof KClass<?> kClass
+									&& KotlinDetector.isInlineClass(JvmClassMappingKt.getJavaClass(kClass))) {
+								KFunction<?> constructor = KClasses.getPrimaryConstructor(kClass);
+								if (!KCallablesJvm.isAccessible(constructor)) {
+									KCallablesJvm.setAccessible(constructor, true);
 								}
-								else {
-									argMap.put(parameter, arg);
-								}
+								arg = constructor.call(arg);
 							}
-							else {
-								argMap.put(parameter, arg);
-							}
+							argMap.put(parameter, arg);
 						}
 						index++;
 					}
 				}
 			}
 			Object result = function.callBy(argMap);
+			if (result != null && KotlinDetector.isInlineClass(result.getClass())) {
+				return result.getClass().getDeclaredMethod("unbox-impl").invoke(result);
+			}
 			return (result == Unit.INSTANCE ? null : result);
 		}
-
 	}
 
 }

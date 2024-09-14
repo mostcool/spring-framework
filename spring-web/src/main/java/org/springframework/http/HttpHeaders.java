@@ -40,8 +40,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.function.BiConsumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.springframework.lang.Nullable;
@@ -393,12 +391,6 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	 */
 	public static final HttpHeaders EMPTY = new ReadOnlyHttpHeaders(new LinkedMultiValueMap<>());
 
-	/**
-	 * Pattern matching ETag multiple field values in headers such as "If-Match", "If-None-Match".
-	 * @see <a href="https://tools.ietf.org/html/rfc7232#section-2.3">Section 2.3 of RFC 7232</a>
-	 */
-	private static final Pattern ETAG_HEADER_VALUE_PATTERN = Pattern.compile("\\*|\\s*((W\\/)?(\"[^\"]*\"))\\s*,?");
-
 	private static final DecimalFormatSymbols DECIMAL_FORMAT_SYMBOLS = new DecimalFormatSymbols(Locale.ENGLISH);
 
 	private static final ZoneId GMT = ZoneId.of("GMT");
@@ -441,7 +433,15 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	 */
 	public HttpHeaders(MultiValueMap<String, String> headers) {
 		Assert.notNull(headers, "MultiValueMap must not be null");
-		this.headers = headers;
+		if (headers == EMPTY) {
+			this.headers = CollectionUtils.toMultiValueMap(new LinkedCaseInsensitiveMap<>(8, Locale.ENGLISH));
+		}
+		else if (headers instanceof ReadOnlyHttpHeaders readOnlyHttpHeaders) {
+			this.headers = readOnlyHttpHeaders.headers;
+		}
+		else {
+			this.headers = headers;
+		}
 	}
 
 
@@ -501,7 +501,20 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	 */
 	public List<Locale.LanguageRange> getAcceptLanguage() {
 		String value = getFirst(ACCEPT_LANGUAGE);
-		return (StringUtils.hasText(value) ? Locale.LanguageRange.parse(value) : Collections.emptyList());
+		if (StringUtils.hasText(value)) {
+			try {
+				return Locale.LanguageRange.parse(value);
+			}
+			catch (IllegalArgumentException ignored) {
+				String[] tokens = StringUtils.tokenizeToStringArray(value, ",");
+				for (int i = 0; i < tokens.length; i++) {
+					tokens[i] = StringUtils.trimTrailingCharacter(tokens[i], ';');
+				}
+				value = StringUtils.arrayToCommaDelimitedString(tokens);
+				return Locale.LanguageRange.parse(value);
+			}
+		}
+		return Collections.emptyList();
 	}
 
 	/**
@@ -961,8 +974,13 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	/**
 	 * Set the length of the body in bytes, as specified by the
 	 * {@code Content-Length} header.
+	 * @param contentLength content length (greater than or equal to zero)
+	 * @throws IllegalArgumentException if the content length is negative
 	 */
 	public void setContentLength(long contentLength) {
+		if (contentLength < 0) {
+			throw new IllegalArgumentException("Content-Length must be a non-negative number");
+		}
 		set(CONTENT_LENGTH, Long.toString(contentLength));
 	}
 
@@ -1045,12 +1063,9 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	/**
 	 * Set the (new) entity tag of the body, as specified by the {@code ETag} header.
 	 */
-	public void setETag(@Nullable String etag) {
-		if (etag != null) {
-			Assert.isTrue(etag.startsWith("\"") || etag.startsWith("W/"),
-					"Invalid ETag: does not start with W/ or \"");
-			Assert.isTrue(etag.endsWith("\""), "Invalid ETag: does not end with \"");
-			set(ETAG, etag);
+	public void setETag(@Nullable String tag) {
+		if (tag != null) {
+			set(ETAG, ETag.quoteETagIfNecessary(tag));
 		}
 		else {
 			remove(ETAG);
@@ -1629,35 +1644,27 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 
 	/**
 	 * Retrieve a combined result from the field values of the ETag header.
-	 * @param headerName the header name
+	 * @param name the header name
 	 * @return the combined result
 	 * @throws IllegalArgumentException if parsing fails
 	 * @since 4.3
 	 */
-	protected List<String> getETagValuesAsList(String headerName) {
-		List<String> values = get(headerName);
-		if (values != null) {
-			List<String> result = new ArrayList<>();
-			for (String value : values) {
-				if (value != null) {
-					Matcher matcher = ETAG_HEADER_VALUE_PATTERN.matcher(value);
-					while (matcher.find()) {
-						if ("*".equals(matcher.group())) {
-							result.add(matcher.group());
-						}
-						else {
-							result.add(matcher.group(1));
-						}
-					}
-					if (result.isEmpty()) {
-						throw new IllegalArgumentException(
-								"Could not parse header '" + headerName + "' with value '" + value + "'");
-					}
+	protected List<String> getETagValuesAsList(String name) {
+		List<String> values = get(name);
+		if (values == null) {
+			return Collections.emptyList();
+		}
+		List<String> result = new ArrayList<>();
+		for (String value : values) {
+			if (value != null) {
+				List<ETag> tags = ETag.parse(value);
+				Assert.notEmpty(tags, "Could not parse header '" + name + "' with value '" + value + "'");
+				for (ETag tag : tags) {
+					result.add(tag.formattedTag());
 				}
 			}
-			return result;
 		}
-		return Collections.emptyList();
+		return result;
 	}
 
 	/**
@@ -1761,6 +1768,10 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 		return this.headers.toSingleValueMap();
 	}
 
+	@Override
+	public Map<String, String> asSingleValueMap() {
+		return this.headers.asSingleValueMap();
+	}
 
 	// Map implementation
 
@@ -1869,7 +1880,7 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	 * Apply a read-only {@code HttpHeaders} wrapper around the given headers, if necessary.
 	 * <p>Also caches the parsed representations of the "Accept" and "Content-Type" headers.
 	 * @param headers the headers to expose
-	 * @return a read-only variant of the headers, or the original headers as-is
+	 * @return a read-only variant of the headers, or the original headers as-is if already read-only
 	 */
 	public static HttpHeaders readOnlyHttpHeaders(HttpHeaders headers) {
 		Assert.notNull(headers, "HttpHeaders must not be null");
@@ -1879,16 +1890,16 @@ public class HttpHeaders implements MultiValueMap<String, String>, Serializable 
 	/**
 	 * Remove any read-only wrapper that may have been previously applied around
 	 * the given headers via {@link #readOnlyHttpHeaders(HttpHeaders)}.
+	 * <p>Once the writable instance is mutated, the read-only instance is likely
+	 * to be out of sync and should be discarded.
 	 * @param headers the headers to expose
 	 * @return a writable variant of the headers, or the original headers as-is
 	 * @since 5.1.1
+	 * @deprecated as of 6.2 in favor of {@link #HttpHeaders(MultiValueMap)}.
 	 */
+	@Deprecated(since = "6.2", forRemoval = true)
 	public static HttpHeaders writableHttpHeaders(HttpHeaders headers) {
-		Assert.notNull(headers, "HttpHeaders must not be null");
-		if (headers == EMPTY) {
-			return new HttpHeaders();
-		}
-		return (headers instanceof ReadOnlyHttpHeaders ? new HttpHeaders(headers.headers) : headers);
+		return new HttpHeaders(headers);
 	}
 
 	/**
