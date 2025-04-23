@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,13 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.service.invoker.HttpExchangeAdapter;
@@ -70,8 +71,7 @@ public final class RestClientAdapter implements HttpExchangeAdapter {
 	}
 
 	@Override
-	@Nullable
-	public <T> T exchangeForBody(HttpRequestValues values, ParameterizedTypeReference<T> bodyType) {
+	public <T> @Nullable T exchangeForBody(HttpRequestValues values, ParameterizedTypeReference<T> bodyType) {
 		return newRequest(values).retrieve().body(bodyType);
 	}
 
@@ -119,6 +119,10 @@ public final class RestClientAdapter implements HttpExchangeAdapter {
 				cookies.add(cookie.toString());
 			}));
 			bodySpec.header(HttpHeaders.COOKIE, String.join("; ", cookies));
+		}
+
+		if (values.getApiVersion() != null) {
+			bodySpec.apiVersion(values.getApiVersion());
 		}
 
 		bodySpec.attributes(attributes -> attributes.putAll(values.getAttributes()));

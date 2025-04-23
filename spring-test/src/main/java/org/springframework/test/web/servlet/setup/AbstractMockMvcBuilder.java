@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
+import org.jspecify.annotations.Nullable;
 
-import org.springframework.lang.Nullable;
 import org.springframework.mock.web.MockServletConfig;
 import org.springframework.test.web.servlet.DispatcherServletCustomizer;
 import org.springframework.test.web.servlet.MockMvc;
@@ -62,11 +62,9 @@ public abstract class AbstractMockMvcBuilder<B extends AbstractMockMvcBuilder<B>
 
 	private final List<Filter> filters = new ArrayList<>();
 
-	@Nullable
-	private RequestBuilder defaultRequestBuilder;
+	private @Nullable RequestBuilder defaultRequestBuilder;
 
-	@Nullable
-	private Charset defaultResponseCharacterEncoding;
+	private @Nullable Charset defaultResponseCharacterEncoding;
 
 	private final List<ResultMatcher> globalResultMatchers = new ArrayList<>();
 
@@ -191,7 +189,7 @@ public abstract class AbstractMockMvcBuilder<B extends AbstractMockMvcBuilder<B>
 					filterDecorator.initIfRequired(servletContext);
 				}
 				catch (ServletException ex) {
-					throw new RuntimeException("Failed to initialize Filter " + filter, ex);
+					throw new IllegalStateException("Failed to initialize Filter " + filter, ex);
 				}
 			}
 		}

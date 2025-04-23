@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,10 @@
 
 package org.springframework.beans.factory;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.beans.BeansException;
 import org.springframework.core.ResolvableType;
-import org.springframework.lang.Nullable;
 
 /**
  * The root interface for accessing a Spring bean container.
@@ -36,7 +37,7 @@ import org.springframework.lang.Nullable;
  * singleton in the scope of the factory). Which type of instance will be returned
  * depends on the bean factory configuration: the API is the same. Since Spring
  * 2.0, further scopes are available depending on the concrete application
- * context (e.g. "request" and "session" scopes in a web environment).
+ * context (for example, "request" and "session" scopes in a web environment).
  *
  * <p>The point of this approach is that the BeanFactory is a central registry
  * of application components, and centralizes configuration of application
@@ -124,8 +125,15 @@ public interface BeanFactory {
 	 * beans <i>created</i> by the FactoryBean. For example, if the bean named
 	 * {@code myJndiObject} is a FactoryBean, getting {@code &myJndiObject}
 	 * will return the factory, not the instance returned by the factory.
+	 * @see #FACTORY_BEAN_PREFIX_CHAR
 	 */
 	String FACTORY_BEAN_PREFIX = "&";
+
+	/**
+	 * Character variant of {@link #FACTORY_BEAN_PREFIX}.
+	 * @since 6.2.6
+	 */
+	char FACTORY_BEAN_PREFIX_CHAR = '&';
 
 
 	/**
@@ -182,7 +190,7 @@ public interface BeanFactory {
 	 * @throws BeansException if the bean could not be created
 	 * @since 2.5
 	 */
-	Object getBean(String name, Object... args) throws BeansException;
+	Object getBean(String name, @Nullable Object @Nullable ... args) throws BeansException;
 
 	/**
 	 * Return the bean instance that uniquely matches the given object type, if any.
@@ -220,7 +228,7 @@ public interface BeanFactory {
 	 * @throws BeansException if the bean could not be created
 	 * @since 4.1
 	 */
-	<T> T getBean(Class<T> requiredType, Object... args) throws BeansException;
+	<T> T getBean(Class<T> requiredType, @Nullable Object @Nullable ... args) throws BeansException;
 
 	/**
 	 * Return a provider for the specified bean, allowing for lazy on-demand retrieval
@@ -357,8 +365,7 @@ public interface BeanFactory {
 	 * @see #getBean
 	 * @see #isTypeMatch
 	 */
-	@Nullable
-	Class<?> getType(String name) throws NoSuchBeanDefinitionException;
+	@Nullable Class<?> getType(String name) throws NoSuchBeanDefinitionException;
 
 	/**
 	 * Determine the type of the bean with the given name. More specifically,
@@ -378,8 +385,7 @@ public interface BeanFactory {
 	 * @see #getBean
 	 * @see #isTypeMatch
 	 */
-	@Nullable
-	Class<?> getType(String name, boolean allowFactoryBeanInit) throws NoSuchBeanDefinitionException;
+	@Nullable Class<?> getType(String name, boolean allowFactoryBeanInit) throws NoSuchBeanDefinitionException;
 
 	/**
 	 * Return the aliases for the given bean name, if any.

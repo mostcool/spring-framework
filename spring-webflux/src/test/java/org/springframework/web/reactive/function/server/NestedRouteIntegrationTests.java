@@ -18,13 +18,13 @@ package org.springframework.web.reactive.function.server;
 
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.testfixture.http.server.reactive.bootstrap.HttpServer;
 import org.springframework.web.util.pattern.PathPattern;
@@ -149,8 +149,8 @@ class NestedRouteIntegrationTests extends AbstractRouterFunctionIntegrationTests
 			Map<String, String> pathVariables = request.pathVariables();
 			Map<String, String> attributePathVariables =
 					(Map<String, String>) request.attributes().get(RouterFunctions.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-			assertThat((pathVariables.equals(attributePathVariables))
-						|| (pathVariables.isEmpty() && (attributePathVariables == null))).isTrue();
+			assertThat((pathVariables.equals(attributePathVariables)) ||
+					(pathVariables.isEmpty() && (attributePathVariables == null))).isTrue();
 
 			PathPattern pathPattern = matchingPattern(request);
 			String pattern = pathPattern != null ? pathPattern.getPatternString() : "";
@@ -164,8 +164,7 @@ class NestedRouteIntegrationTests extends AbstractRouterFunctionIntegrationTests
 			return ServerResponse.ok().body(responseBody, String.class);
 		}
 
-		@Nullable
-		private PathPattern matchingPattern(ServerRequest request) {
+		private @Nullable PathPattern matchingPattern(ServerRequest request) {
 			return (PathPattern) request.attributes().get(RouterFunctions.MATCHING_PATTERN_ATTRIBUTE);
 		}
 

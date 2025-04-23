@@ -24,11 +24,11 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.EmbeddedValueResolverAware;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ObjectUtils;
@@ -52,14 +52,11 @@ public class MethodMapTransactionAttributeSource
 	protected final Log logger = LogFactory.getLog(getClass());
 
 	/** Map from method name to attribute value. */
-	@Nullable
-	private Map<String, TransactionAttribute> methodMap;
+	private @Nullable Map<String, TransactionAttribute> methodMap;
 
-	@Nullable
-	private StringValueResolver embeddedValueResolver;
+	private @Nullable StringValueResolver embeddedValueResolver;
 
-	@Nullable
-	private ClassLoader beanClassLoader = ClassUtils.getDefaultClassLoader();
+	private @Nullable ClassLoader beanClassLoader = ClassUtils.getDefaultClassLoader();
 
 	private boolean eagerlyInitialized = false;
 
@@ -74,7 +71,7 @@ public class MethodMapTransactionAttributeSource
 
 	/**
 	 * Set a name/attribute map, consisting of "{@code <fully-qualified class name>.<method-name>}"
-	 * method names (e.g. "com.mycompany.mycode.MyClass.myMethod") and
+	 * method names (for example, "com.mycompany.mycode.MyClass.myMethod") and
 	 * {@link TransactionAttribute} instances (or Strings to be converted
 	 * to {@code TransactionAttribute} instances).
 	 * <p>Intended for configuration via setter injection, typically within
@@ -221,8 +218,7 @@ public class MethodMapTransactionAttributeSource
 
 
 	@Override
-	@Nullable
-	public TransactionAttribute getTransactionAttribute(Method method, @Nullable Class<?> targetClass) {
+	public @Nullable TransactionAttribute getTransactionAttribute(Method method, @Nullable Class<?> targetClass) {
 		if (this.eagerlyInitialized) {
 			return this.transactionAttributeMap.get(method);
 		}

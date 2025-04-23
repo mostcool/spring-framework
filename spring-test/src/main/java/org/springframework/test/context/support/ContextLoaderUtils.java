@@ -232,7 +232,7 @@ abstract class ContextLoaderUtils {
 	 * @throws IllegalArgumentException if the supplied class is {@code null} or if
 	 * {@code @ContextConfiguration} is not <em>present</em> on the supplied class
 	 */
-	@SuppressWarnings("NullAway")
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	static List<ContextConfigurationAttributes> resolveContextConfigurationAttributes(Class<?> testClass) {
 		Assert.notNull(testClass, "Class must not be null");
 
@@ -252,8 +252,8 @@ abstract class ContextLoaderUtils {
 			// annotated class.
 			if (currentAnnotation.equals(previousAnnotation) && hasResources(currentAnnotation)) {
 				if (logger.isDebugEnabled()) {
-					logger.debug(String.format("Ignoring duplicate %s declaration on [%s], "
-							+ "since it is also declared on [%s].", currentAnnotation,
+					logger.debug(String.format("Ignoring duplicate %s declaration on [%s], " +
+							"since it is also declared on [%s].", currentAnnotation,
 							previousDeclaringClass.getName(), descriptor.getRootDeclaringClass().getName()));
 				}
 			}

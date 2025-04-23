@@ -57,7 +57,7 @@ import org.springframework.util.FastByteArrayOutputStream;
  * @author Arjen Poutsma
  * @since 5.3
  */
-@SuppressWarnings("NullAway")
+@SuppressWarnings("NullAway") // Dataflow analysis limitation
 final class PartGenerator extends BaseSubscriber<MultipartParser.Token> {
 
 	private static final Log logger = LogFactory.getLog(PartGenerator.class);
@@ -163,9 +163,8 @@ final class PartGenerator extends BaseSubscriber<MultipartParser.Token> {
 			return true;
 		}
 		else {
-			logger.warn("Could not switch from " + oldState +
-					" to " + newState + "; current state:"
-				+ this.state.get());
+			logger.warn("Could not switch from " + oldState + " to " + newState +
+					"; current state:" + this.state.get());
 			return false;
 		}
 	}

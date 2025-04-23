@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,11 @@ import java.util.stream.Stream;
 
 import javax.sql.DataSource;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.beans.BeanUtils;
+import org.springframework.core.convert.ConversionService;
+import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCreator;
@@ -43,7 +47,6 @@ import org.springframework.jdbc.core.namedparam.SimplePropertySqlParameterSource
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.jdbc.support.rowset.SqlRowSet;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -63,24 +66,25 @@ final class DefaultJdbcClient implements JdbcClient {
 
 	private final NamedParameterJdbcOperations namedParamOps;
 
+	private final ConversionService conversionService;
+
 	private final Map<Class<?>, RowMapper<?>> rowMapperCache = new ConcurrentHashMap<>();
 
 
 	public DefaultJdbcClient(DataSource dataSource) {
-		this.classicOps = new JdbcTemplate(dataSource);
-		this.namedParamOps = new NamedParameterJdbcTemplate(this.classicOps);
+		this(new JdbcTemplate(dataSource));
 	}
 
 	public DefaultJdbcClient(JdbcOperations jdbcTemplate) {
-		Assert.notNull(jdbcTemplate, "JdbcTemplate must not be null");
-		this.classicOps = jdbcTemplate;
-		this.namedParamOps = new NamedParameterJdbcTemplate(jdbcTemplate);
+		this(new NamedParameterJdbcTemplate(jdbcTemplate), null);
 	}
 
-	public DefaultJdbcClient(NamedParameterJdbcOperations jdbcTemplate) {
+	public DefaultJdbcClient(NamedParameterJdbcOperations jdbcTemplate, @Nullable ConversionService conversionService) {
 		Assert.notNull(jdbcTemplate, "JdbcTemplate must not be null");
 		this.classicOps = jdbcTemplate.getJdbcOperations();
 		this.namedParamOps = jdbcTemplate;
+		this.conversionService =
+				(conversionService != null ? conversionService : DefaultConversionService.getSharedInstance());
 	}
 
 
@@ -200,8 +204,9 @@ final class DefaultJdbcClient implements JdbcClient {
 		@Override
 		public <T> MappedQuerySpec<T> query(Class<T> mappedClass) {
 			RowMapper<?> rowMapper = rowMapperCache.computeIfAbsent(mappedClass, key ->
-					BeanUtils.isSimpleProperty(mappedClass) ? new SingleColumnRowMapper<>(mappedClass) :
-							new SimplePropertyRowMapper<>(mappedClass));
+					BeanUtils.isSimpleProperty(mappedClass) ?
+							new SingleColumnRowMapper<>(mappedClass, conversionService) :
+							new SimplePropertyRowMapper<>(mappedClass, conversionService));
 			return query((RowMapper<T>) rowMapper);
 		}
 
@@ -268,7 +273,7 @@ final class DefaultJdbcClient implements JdbcClient {
 			return new PreparedStatementCreatorFactory(this.sql).newPreparedStatementCreator(this.indexedParams);
 		}
 
-		private PreparedStatementCreator statementCreatorForIndexedParamsWithKeys(@Nullable String[] keyColumnNames) {
+		private PreparedStatementCreator statementCreatorForIndexedParamsWithKeys(String @Nullable [] keyColumnNames) {
 			PreparedStatementCreatorFactory pscf = new PreparedStatementCreatorFactory(this.sql);
 			if (keyColumnNames != null) {
 				pscf.setGeneratedKeysColumnNames(keyColumnNames);

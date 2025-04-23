@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,15 +24,16 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.Field;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.core.ResolvableType;
-import org.springframework.lang.Nullable;
 import org.springframework.test.context.bean.override.DummyBean.DummyBeanOverrideProcessor;
 import org.springframework.util.StringUtils;
 
 /**
  * A dummy {@link BeanOverride} implementation that only handles {@link CharSequence}
- * and {@link Integer} and replace them with {@code "overridden"} and {@code 42},
+ * and {@link Integer} and replaces them with {@code "overridden"} and {@code 42},
  * respectively.
  *
  * @author Stephane Nicoll
@@ -45,30 +46,32 @@ import org.springframework.util.StringUtils;
 
 	String beanName() default "";
 
-	BeanOverrideStrategy strategy() default BeanOverrideStrategy.REPLACE_DEFINITION;
+	String contextName() default "";
+
+	BeanOverrideStrategy strategy() default BeanOverrideStrategy.REPLACE;
 
 	class DummyBeanOverrideProcessor implements BeanOverrideProcessor {
 
 		@Override
-		public OverrideMetadata createMetadata(Annotation annotation, Class<?> testClass, Field field) {
+		public BeanOverrideHandler createHandler(Annotation annotation, Class<?> testClass, Field field) {
 			DummyBean dummyBean = (DummyBean) annotation;
 			String beanName = (StringUtils.hasText(dummyBean.beanName()) ? dummyBean.beanName() : null);
-			return new DummyBeanOverrideProcessor.DummyOverrideMetadata(field, field.getType(), beanName,
-					dummyBean.strategy());
+			return new DummyBeanOverrideProcessor.DummyBeanOverrideHandler(field, field.getType(), beanName,
+					dummyBean.contextName(), dummyBean.strategy());
 		}
 
 		// Bare bone, "dummy", implementation that should not override anything
-		// else than createOverride.
-		static class DummyOverrideMetadata extends OverrideMetadata {
+		// other than createOverrideInstance().
+		static class DummyBeanOverrideHandler extends BeanOverrideHandler {
 
-			DummyOverrideMetadata(Field field, Class<?> typeToOverride, @Nullable String beanName,
-					BeanOverrideStrategy strategy) {
+			DummyBeanOverrideHandler(Field field, Class<?> typeToOverride, @Nullable String beanName,
+					String contextName, BeanOverrideStrategy strategy) {
 
-				super(field, ResolvableType.forClass(typeToOverride), beanName, strategy);
+				super(field, ResolvableType.forClass(typeToOverride), beanName, contextName, strategy);
 			}
 
 			@Override
-			protected Object createOverride(String beanName, @Nullable BeanDefinition existingBeanDefinition,
+			protected Object createOverrideInstance(String beanName, @Nullable BeanDefinition existingBeanDefinition,
 					@Nullable Object existingBeanInstance) {
 
 				Class<?> beanType = getField().getType();

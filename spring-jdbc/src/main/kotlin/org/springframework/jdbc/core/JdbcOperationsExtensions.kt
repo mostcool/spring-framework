@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import java.sql.ResultSet
  * @since 5.0
  */
 inline fun <reified T> JdbcOperations.queryForObject(sql: String): T =
-		queryForObject(sql, T::class.java) as T
+		queryForObject(sql, T::class.java as Class<*>) as T
 
 /**
  * Extensions for [JdbcOperations.queryForObject] providing a RowMapper-like function
@@ -45,7 +45,7 @@ inline fun <reified T> JdbcOperations.queryForObject(sql: String, vararg args: A
  * @since 5.0
  */
 inline fun <reified T> JdbcOperations.queryForObject(sql: String, args: Array<out Any>, argTypes: IntArray): T? =
-		queryForObject(sql, args, argTypes, T::class.java) as T
+		queryForObject(sql, args, argTypes, T::class.java as Class<*>) as T
 
 /**
  * Extension for [JdbcOperations.queryForObject] providing a
@@ -54,10 +54,8 @@ inline fun <reified T> JdbcOperations.queryForObject(sql: String, args: Array<ou
  * @author Mario Arias
  * @since 5.0
  */
-@Suppress("DEPRECATION")
-// TODO Replace by the vararg variant in Spring Framework 6
 inline fun <reified T> JdbcOperations.queryForObject(sql: String, args: Array<out Any>): T? =
-		queryForObject(sql, args, T::class.java) as T
+		queryForObject(sql, T::class.java as Class<*>, args) as T
 
 /**
  * Extension for [JdbcOperations.queryForList] providing a `queryForList<Foo>("...")` variant.
@@ -66,7 +64,7 @@ inline fun <reified T> JdbcOperations.queryForObject(sql: String, args: Array<ou
  * @since 5.0
  */
 @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
-inline fun <reified T> JdbcOperations.queryForList(sql: String): List<T> =
+inline fun <reified T : Any> JdbcOperations.queryForList(sql: String): List<T> =
 		queryForList(sql, T::class.java)
 
 /**
@@ -77,7 +75,7 @@ inline fun <reified T> JdbcOperations.queryForList(sql: String): List<T> =
  * @since 5.0
  */
 @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
-inline fun <reified T> JdbcOperations.queryForList(sql: String, args: Array<out Any>,
+inline fun <reified T : Any> JdbcOperations.queryForList(sql: String, args: Array<out Any>,
 		argTypes: IntArray): List<T> =
 		queryForList(sql, args, argTypes, T::class.java)
 
@@ -88,10 +86,8 @@ inline fun <reified T> JdbcOperations.queryForList(sql: String, args: Array<out 
  * @author Mario Arias
  * @since 5.0
  */
-@Suppress("DEPRECATION")
-// TODO Replace by the vararg variant in Spring Framework 6
-inline fun <reified T> JdbcOperations.queryForList(sql: String, args: Array<out Any>): List<T> =
-		queryForList(sql, args, T::class.java)
+inline fun <reified T : Any> JdbcOperations.queryForList(sql: String, args: Array<out Any>): List<T> =
+		queryForList(sql, T::class.java, args)
 
 
 /**

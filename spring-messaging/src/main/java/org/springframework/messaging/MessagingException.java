@@ -16,8 +16,9 @@
 
 package org.springframework.messaging;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.core.NestedRuntimeException;
-import org.springframework.lang.Nullable;
 
 /**
  * The base exception for any failures related to messaging.
@@ -29,8 +30,7 @@ import org.springframework.lang.Nullable;
 @SuppressWarnings("serial")
 public class MessagingException extends NestedRuntimeException {
 
-	@Nullable
-	private final Message<?> failedMessage;
+	private final @Nullable Message<?> failedMessage;
 
 
 	public MessagingException(Message<?> message) {
@@ -64,15 +64,14 @@ public class MessagingException extends NestedRuntimeException {
 	}
 
 
-	@Nullable
-	public Message<?> getFailedMessage() {
+	public @Nullable Message<?> getFailedMessage() {
 		return this.failedMessage;
 	}
 
 	@Override
 	public String toString() {
-		return super.toString() + (this.failedMessage == null ? ""
-				: (", failedMessage=" + this.failedMessage));
+		return super.toString() + (this.failedMessage == null ? "" :
+				(", failedMessage=" + this.failedMessage));
 	}
 
 }

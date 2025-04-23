@@ -26,8 +26,8 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.logging.Log;
+import org.jspecify.annotations.Nullable;
 
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.simp.SimpLogging;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -126,8 +126,8 @@ public class StompEncoder {
 			return;
 		}
 
-		boolean shouldEscape = (command != StompCommand.CONNECT && command != StompCommand.STOMP
-				&& command != StompCommand.CONNECTED);
+		boolean shouldEscape = (command != StompCommand.CONNECT && command != StompCommand.STOMP &&
+				command != StompCommand.CONNECTED);
 
 		for (Entry<String, List<String>> entry : nativeHeaders.entrySet()) {
 			if (command.requiresContentLength() && "content-length".equals(entry.getKey())) {

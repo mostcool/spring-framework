@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,7 +109,7 @@ import org.springframework.web.util.UriBuilderFactory;
  * <td>{@link org.springframework.web.bind.annotation.RequestPart @RequestPart}</td>
  * <td>Add a request part, which may be a String (form field),
  * {@link org.springframework.core.io.Resource} (file part), Object (entity to be
- * encoded, e.g. as JSON), {@link HttpEntity} (part content and headers), a
+ * encoded, for example, as JSON), {@link HttpEntity} (part content and headers), a
  * {@link org.springframework.http.codec.multipart.Part}, or a
  * {@link org.reactivestreams.Publisher} of any of the above.
  * (</td>
@@ -184,5 +184,11 @@ public @interface HttpExchange {
 	 * @since 6.2
 	 */
 	String[] headers() default {};
+
+	/**
+	 * The API version associated with the request.
+	 * @since 7.0
+	 */
+	String version() default "";
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,12 +24,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
 
-import org.springframework.lang.Nullable;
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.util.Assert;
 import org.springframework.util.ConcurrencyThrottleSupport;
 import org.springframework.util.CustomizableThreadCreator;
-import org.springframework.util.concurrent.ListenableFuture;
-import org.springframework.util.concurrent.ListenableFutureTask;
 
 /**
  * {@link TaskExecutor} implementation that fires up a new Thread for each task,
@@ -45,6 +44,11 @@ import org.springframework.util.concurrent.ListenableFutureTask;
  * executing a large number of short-lived tasks. Alternatively, on JDK 21,
  * consider setting {@link #setVirtualThreads} to {@code true}.
  *
+ * <p><b>NOTE: This executor does not participate in context-level lifecycle
+ * management.</b> Tasks on handed-off execution threads cannot be centrally
+ * stopped and restarted; if such tight lifecycle management is necessary,
+ * consider a common {@code ThreadPoolTaskExecutor} setup instead.
+ *
  * @author Juergen Hoeller
  * @since 2.0
  * @see #setVirtualThreads
@@ -53,9 +57,9 @@ import org.springframework.util.concurrent.ListenableFutureTask;
  * @see org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler
  * @see org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
  */
-@SuppressWarnings({"serial", "deprecation"})
+@SuppressWarnings("serial")
 public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
-		implements AsyncListenableTaskExecutor, Serializable, AutoCloseable {
+		implements AsyncTaskExecutor, Serializable, AutoCloseable {
 
 	/**
 	 * Permit any number of concurrent invocations: that is, don't throttle concurrency.
@@ -73,19 +77,17 @@ public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
 	/** Internal concurrency throttle used by this executor. */
 	private final ConcurrencyThrottleAdapter concurrencyThrottle = new ConcurrencyThrottleAdapter();
 
-	@Nullable
-	private VirtualThreadDelegate virtualThreadDelegate;
+	private @Nullable VirtualThreadDelegate virtualThreadDelegate;
 
-	@Nullable
-	private ThreadFactory threadFactory;
+	private @Nullable ThreadFactory threadFactory;
 
-	@Nullable
-	private TaskDecorator taskDecorator;
+	private @Nullable TaskDecorator taskDecorator;
 
 	private long taskTerminationTimeout;
 
-	@Nullable
-	private Set<Thread> activeThreads;
+	private @Nullable Set<Thread> activeThreads;
+
+	private boolean rejectTasksWhenLimitReached = false;
 
 	private volatile boolean active = true;
 
@@ -139,8 +141,7 @@ public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
 	/**
 	 * Return the external factory to use for creating new Threads, if any.
 	 */
-	@Nullable
-	public final ThreadFactory getThreadFactory() {
+	public final @Nullable ThreadFactory getThreadFactory() {
 		return this.threadFactory;
 	}
 
@@ -186,10 +187,26 @@ public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
 	}
 
 	/**
+	 * Specify whether to reject tasks when the concurrency limit has been reached,
+	 * throwing {@link TaskRejectedException} on any further submission attempts.
+	 * <p>The default is {@code false}, blocking the caller until the submission can
+	 * be accepted. Switch this to {@code true} for immediate rejection instead.
+	 * @since 6.2.6
+	 */
+	public void setRejectTasksWhenLimitReached(boolean rejectTasksWhenLimitReached) {
+		this.rejectTasksWhenLimitReached = rejectTasksWhenLimitReached;
+	}
+
+	/**
 	 * Set the maximum number of parallel task executions allowed.
 	 * The default of -1 indicates no concurrency limit at all.
 	 * <p>This is the equivalent of a maximum pool size in a thread pool,
 	 * preventing temporary overload of the thread management system.
+	 * However, in contrast to a thread pool with a managed task queue,
+	 * this executor will block the submitter until the task can be
+	 * accepted when the configured concurrency limit has been reached.
+	 * If you prefer queue-based task hand-offs without such blocking,
+	 * consider using a {@code ThreadPoolTaskExecutor} instead.
 	 * @see #UNBOUNDED_CONCURRENCY
 	 * @see org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor#setMaxPoolSize
 	 */
@@ -284,22 +301,6 @@ public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
 		return future;
 	}
 
-	@SuppressWarnings("deprecation")
-	@Override
-	public ListenableFuture<?> submitListenable(Runnable task) {
-		ListenableFutureTask<Object> future = new ListenableFutureTask<>(task, null);
-		execute(future, TIMEOUT_INDEFINITE);
-		return future;
-	}
-
-	@SuppressWarnings("deprecation")
-	@Override
-	public <T> ListenableFuture<T> submitListenable(Callable<T> task) {
-		ListenableFutureTask<T> future = new ListenableFutureTask<>(task);
-		execute(future, TIMEOUT_INDEFINITE);
-		return future;
-	}
-
 	/**
 	 * Template method for the actual execution of a task.
 	 * <p>The default implementation creates a new Thread and starts it.
@@ -362,11 +363,19 @@ public class SimpleAsyncTaskExecutor extends CustomizableThreadCreator
 	 * making {@code beforeAccess()} and {@code afterAccess()}
 	 * visible to the surrounding class.
 	 */
-	private static class ConcurrencyThrottleAdapter extends ConcurrencyThrottleSupport {
+	private class ConcurrencyThrottleAdapter extends ConcurrencyThrottleSupport {
 
 		@Override
 		protected void beforeAccess() {
 			super.beforeAccess();
+		}
+
+		@Override
+		protected void onLimitReached() {
+			if (rejectTasksWhenLimitReached) {
+				throw new TaskRejectedException("Concurrency limit reached: " + getConcurrencyLimit());
+			}
+			super.onLimitReached();
 		}
 
 		@Override

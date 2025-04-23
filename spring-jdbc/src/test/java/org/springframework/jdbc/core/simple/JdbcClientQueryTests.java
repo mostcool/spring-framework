@@ -16,10 +16,12 @@
 
 package org.springframework.jdbc.core.simple;
 
+import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +34,11 @@ import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.util.NumberUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -167,6 +174,40 @@ class JdbcClientQueryTests {
 				.query().singleValue();
 
 		assertThat(value).isEqualTo(22);
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID = ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForIntegerWithIndexedParamAndOptionalValue() throws Exception {
+		given(resultSet.next()).willReturn(true, false);
+		given(resultSet.getObject(1)).willReturn(22);
+
+		Optional<Object> value = client.sql("SELECT AGE FROM CUSTMR WHERE ID = ?")
+				.param(1, 3)
+				.query().optionalValue();
+
+		assertThat(value.isPresent()).isTrue();
+		assertThat(value.get()).isEqualTo(22);
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID = ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForIntegerWithIndexedParamAndNonExistingValue() throws Exception {
+		given(resultSet.next()).willReturn(false);
+
+		Optional<Object> value = client.sql("SELECT AGE FROM CUSTMR WHERE ID = ?")
+				.param(1, 3)
+				.query().optionalValue();
+
+		assertThat(value.isPresent()).isFalse();
 		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID = ?");
 		verify(preparedStatement).setObject(1, 3);
 		verify(resultSet).close();
@@ -559,13 +600,22 @@ class JdbcClientQueryTests {
 	@Test
 	void queryForMappedFieldHolderWithNamedParam() throws Exception {
 		given(resultSet.next()).willReturn(true, false);
-		given(resultSet.getInt(1)).willReturn(22);
+		given(resultSet.getObject(1, BigInteger.class)).willThrow(new SQLFeatureNotSupportedException());
+		given(resultSet.getObject(1)).willReturn("big22");
 
+		GenericConversionService conversionService = new GenericConversionService();
+		conversionService.addConverter(new Converter<String, BigInteger>() {  // explicit for generics
+			@Override
+			public BigInteger convert(String source) {
+				return NumberUtils.parseNumber(source.substring(3), BigInteger.class);
+			}
+		});
+		client = JdbcClient.create(new NamedParameterJdbcTemplate(dataSource), conversionService);
 		AgeFieldHolder value = client.sql("SELECT AGE FROM CUSTMR WHERE ID = :id")
 				.param("id", 3)
 				.query(AgeFieldHolder.class).single();
 
-		assertThat(value.age).isEqualTo(22);
+		assertThat(value.age).isEqualTo(BigInteger.valueOf(22));
 		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID = ?");
 		verify(preparedStatement).setObject(1, 3);
 		verify(resultSet).close();
@@ -622,7 +672,7 @@ class JdbcClientQueryTests {
 
 	static class AgeFieldHolder {
 
-		public int age;
+		public BigInteger age;
 	}
 
 }

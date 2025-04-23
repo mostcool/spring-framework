@@ -18,6 +18,7 @@ package org.springframework.test.context.support;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.BeanFactoryInitializer;
 import org.springframework.beans.factory.BeanFactoryUtils;
@@ -25,24 +26,30 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
-import org.springframework.lang.Nullable;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.springframework.test.context.DynamicPropertyRegistry;
 
 /**
- * Internal component which eagerly initializes {@link DynamicPropertyRegistrar}
+ * {@link BeanFactoryInitializer} that eagerly initializes {@link DynamicPropertyRegistrar}
  * beans.
+ *
+ * <p>Primarily intended for internal use within the Spring TestContext Framework.
  *
  * @author Sam Brannen
  * @since 6.2
  */
-class DynamicPropertyRegistrarBeanInitializer implements BeanFactoryInitializer<ListableBeanFactory>, EnvironmentAware {
+public class DynamicPropertyRegistrarBeanInitializer implements BeanFactoryInitializer<ListableBeanFactory>, EnvironmentAware {
 
 	private static final Log logger = LogFactory.getLog(DynamicPropertyRegistrarBeanInitializer.class);
 
+	/**
+	 * The bean name of the internally managed {@code DynamicPropertyRegistrarBeanInitializer}.
+	 */
+	static final String BEAN_NAME =
+			"org.springframework.test.context.support.internalDynamicPropertyRegistrarBeanInitializer";
 
-	@Nullable
-	private ConfigurableEnvironment environment;
+
+	private @Nullable ConfigurableEnvironment environment;
 
 
 	@Override

@@ -24,6 +24,7 @@ import java.util.function.Function;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -33,7 +34,6 @@ import org.springframework.http.server.PathContainer;
 import org.springframework.http.server.RequestPath;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.lang.Nullable;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
@@ -78,7 +78,7 @@ public final class UrlHandlerFilter implements WebFilter {
 	public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
 		RequestPath path = exchange.getRequest().getPath();
 		for (Map.Entry<Handler, List<PathPattern>> entry : this.handlers.entrySet()) {
-			if (!entry.getKey().canHandle(exchange)) {
+			if (!entry.getKey().supports(exchange)) {
 				continue;
 			}
 			for (PathPattern pattern : entry.getValue()) {
@@ -183,8 +183,7 @@ public final class UrlHandlerFilter implements WebFilter {
 
 			private final List<PathPattern> pathPatterns;
 
-			@Nullable
-			private List<Function<ServerHttpRequest, Mono<Void>>> interceptors;
+			private @Nullable List<Function<ServerHttpRequest, Mono<Void>>> interceptors;
 
 			private DefaultTrailingSlashSpec(String[] patterns) {
 				this.pathPatterns = Arrays.stream(patterns)
@@ -223,7 +222,7 @@ public final class UrlHandlerFilter implements WebFilter {
 		/**
 		 * Whether the handler handles the given request.
 		 */
-		boolean canHandle(ServerWebExchange exchange);
+		boolean supports(ServerWebExchange exchange);
 
 		/**
 		 * Handle the request, possibly delegating to the rest of the filter chain.
@@ -252,8 +251,9 @@ public final class UrlHandlerFilter implements WebFilter {
 		}
 
 		@Override
-		public boolean canHandle(ServerWebExchange exchange) {
-			List<PathContainer.Element> elements = exchange.getRequest().getPath().elements();
+		public boolean supports(ServerWebExchange exchange) {
+			ServerHttpRequest request = exchange.getRequest();
+			List<PathContainer.Element> elements = request.getPath().pathWithinApplication().elements();
 			return (elements.size() > 1 && elements.get(elements.size() - 1).value().equals("/"));
 		}
 

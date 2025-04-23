@@ -20,11 +20,11 @@ import java.io.IOException;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.web.testfixture.servlet.MockFilterChain;
 import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
@@ -87,17 +87,20 @@ public class UrlHandlerFilterTests {
 
 	@Test
 	void noUrlHandling() throws Exception {
-		testNoUrlHandling("/path/**", "/path/123");
-		testNoUrlHandling("/path/*", "/path/123");
-		testNoUrlHandling("/**", "/"); // gh-33444
+		testNoUrlHandling("/path/**", "", "/path/123");
+		testNoUrlHandling("/path/*", "", "/path/123");
+		testNoUrlHandling("/**", "", "/"); // gh-33444
+		testNoUrlHandling("/**", "/myApp", "/myApp/"); // gh-33565
 	}
 
-	private static void testNoUrlHandling(String pattern, String requestURI) throws ServletException, IOException {
+	private static void testNoUrlHandling(String pattern, String contextPath, String requestURI)
+			throws ServletException, IOException {
 
 		// No request wrapping
 		UrlHandlerFilter filter = UrlHandlerFilter.trailingSlashHandler(pattern).wrapRequest().build();
 
 		MockHttpServletRequest request = new MockHttpServletRequest("GET", requestURI);
+		request.setContextPath(contextPath);
 		MockFilterChain chain = new MockFilterChain();
 		filter.doFilterInternal(request, new MockHttpServletResponse(), chain);
 
@@ -109,6 +112,7 @@ public class UrlHandlerFilterTests {
 		filter = UrlHandlerFilter.trailingSlashHandler(pattern).redirect(status).build();
 
 		request = new MockHttpServletRequest("GET", requestURI);
+		request.setContextPath(contextPath);
 		MockHttpServletResponse response = new MockHttpServletResponse();
 
 		chain = new MockFilterChain();

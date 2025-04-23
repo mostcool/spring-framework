@@ -20,13 +20,14 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.lang.Nullable;
 import org.springframework.test.context.ContextCustomizer;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.MergedContextConfiguration;
@@ -50,10 +51,6 @@ import org.springframework.util.ReflectionUtils;
  */
 class DynamicPropertiesContextCustomizer implements ContextCustomizer {
 
-	private static final String DYNAMIC_PROPERTY_REGISTRAR_BEAN_INITIALIZER_BEAN_NAME =
-			DynamicPropertiesContextCustomizer.class.getName() + ".dynamicPropertyRegistrarBeanInitializer";
-
-
 	private final Set<Method> methods;
 
 
@@ -70,11 +67,10 @@ class DynamicPropertiesContextCustomizer implements ContextCustomizer {
 			throw new IllegalStateException("BeanFactory must be a BeanDefinitionRegistry");
 		}
 
-		if (!beanDefinitionRegistry.containsBeanDefinition(DYNAMIC_PROPERTY_REGISTRAR_BEAN_INITIALIZER_BEAN_NAME)) {
+		if (!beanDefinitionRegistry.containsBeanDefinition(DynamicPropertyRegistrarBeanInitializer.BEAN_NAME)) {
 			BeanDefinition beanDefinition = new RootBeanDefinition(DynamicPropertyRegistrarBeanInitializer.class);
 			beanDefinition.setRole(BeanDefinition.ROLE_INFRASTRUCTURE);
-			beanDefinitionRegistry.registerBeanDefinition(
-					DYNAMIC_PROPERTY_REGISTRAR_BEAN_INITIALIZER_BEAN_NAME, beanDefinition);
+			beanDefinitionRegistry.registerBeanDefinition(DynamicPropertyRegistrarBeanInitializer.BEAN_NAME, beanDefinition);
 		}
 
 		if (!this.methods.isEmpty()) {
