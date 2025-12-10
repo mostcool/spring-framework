@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -269,13 +269,15 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 						// Fallback as of 6.2: process given singleton bean outside of singleton lock.
 						// Thread-safe exposure is still guaranteed, there is just a risk of collisions
 						// when triggering creation of other beans as dependencies of the current bean.
-						if (logger.isInfoEnabled()) {
-							logger.info("Obtaining singleton bean '" + beanName + "' in thread \"" +
-									Thread.currentThread().getName() + "\" while other thread holds " +
-									"singleton lock for other beans " + this.singletonsCurrentlyInCreation);
-						}
 						this.lenientCreationLock.lock();
 						try {
+							if (logger.isInfoEnabled()) {
+								Set<String> lockedBeans = new HashSet<>(this.singletonsCurrentlyInCreation);
+								lockedBeans.removeAll(this.singletonsInLenientCreation);
+								logger.info("Obtaining singleton bean '" + beanName + "' in thread \"" +
+										currentThread.getName() + "\" while other thread holds singleton " +
+										"lock for other beans " + lockedBeans);
+							}
 							this.singletonsInLenientCreation.add(beanName);
 						}
 						finally {
@@ -580,7 +582,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 	public void registerContainedBean(String containedBeanName, String containingBeanName) {
 		synchronized (this.containedBeanMap) {
 			Set<String> containedBeans =
-					this.containedBeanMap.computeIfAbsent(containingBeanName, k -> new LinkedHashSet<>(8));
+					this.containedBeanMap.computeIfAbsent(containingBeanName, key -> new LinkedHashSet<>(8));
 			if (!containedBeans.add(containedBeanName)) {
 				return;
 			}
@@ -599,7 +601,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 
 		synchronized (this.dependentBeanMap) {
 			Set<String> dependentBeans =
-					this.dependentBeanMap.computeIfAbsent(canonicalName, k -> new LinkedHashSet<>(8));
+					this.dependentBeanMap.computeIfAbsent(canonicalName, key -> new LinkedHashSet<>(8));
 			if (!dependentBeans.add(dependentBeanName)) {
 				return;
 			}
@@ -607,7 +609,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 
 		synchronized (this.dependenciesForBeanMap) {
 			Set<String> dependenciesForBean =
-					this.dependenciesForBeanMap.computeIfAbsent(dependentBeanName, k -> new LinkedHashSet<>(8));
+					this.dependenciesForBeanMap.computeIfAbsent(dependentBeanName, key -> new LinkedHashSet<>(8));
 			dependenciesForBean.add(canonicalName);
 		}
 	}

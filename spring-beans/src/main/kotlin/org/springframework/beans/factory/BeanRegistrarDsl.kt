@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -111,8 +111,8 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 	}
 
 	/**
-	 * Register a bean from the given bean class, which will be instantiated
-	 * using the related [resolvable constructor]
+	 * Register a bean of type [T] which will be instantiated using the
+	 * related [resolvable constructor]
 	 * [org.springframework.beans.BeanUtils.getResolvableConstructor] if any.
 	 * @param T the bean type
 	 * @param name the name of the bean
@@ -168,17 +168,13 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 			if (prototype) {
 				it.prototype()
 			}
-			val resolvableType = ResolvableType.forType(object: ParameterizedTypeReference<T>() {});
-			if (resolvableType.hasGenerics()) {
-				it.targetType(resolvableType)
-			}
 		}
-		registry.registerBean(name, T::class.java, customizer)
+		registry.registerBean(name, object: ParameterizedTypeReference<T>() {}, customizer)
 	}
 
 	/**
-	 * Register a bean from the given bean class, which will be instantiated
-	 * using the related [resolvable constructor]
+	 * Register a bean of type [T] which will be instantiated using the
+	 * related [resolvable constructor]
 	 * [org.springframework.beans.BeanUtils.getResolvableConstructor]
 	 * if any.
 	 * @param T the bean type
@@ -234,17 +230,13 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 			if (prototype) {
 				it.prototype()
 			}
-			val resolvableType = ResolvableType.forType(object: ParameterizedTypeReference<T>() {});
-			if (resolvableType.hasGenerics()) {
-				it.targetType(resolvableType)
-			}
 		}
-		return registry.registerBean(T::class.java, customizer)
+		return registry.registerBean(object: ParameterizedTypeReference<T>() {}, customizer)
 	}
 
 	/**
-	 * Register a bean from the given bean class, which will be instantiated
-	 * using the provided [supplier].
+	 * Register a bean of type [T] which will be instantiated using the
+	 * provided [supplier].
 	 * @param T the bean type
 	 * @param name the name of the bean
 	 * @param autowirable set whether this bean is a candidate for getting
@@ -302,14 +294,10 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 				it.prototype()
 			}
 			it.supplier {
-				SupplierContextDsl<T>(it).supplier()
-			}
-			val resolvableType = ResolvableType.forType(object: ParameterizedTypeReference<T>() {});
-			if (resolvableType.hasGenerics()) {
-				it.targetType(resolvableType)
+				SupplierContextDsl<T>(it, env).supplier()
 			}
 		}
-		registry.registerBean(name, T::class.java, customizer)
+		registry.registerBean(name, object: ParameterizedTypeReference<T>() {}, customizer)
 	}
 
 	inline fun <reified T : Any> registerBean(autowirable: Boolean = true,
@@ -323,8 +311,8 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 											  prototype: Boolean = false,
 											  crossinline supplier: (SupplierContextDsl<T>.() -> T)): String {
 		/**
-		 * Register a bean from the given bean class, which will be instantiated
-		 * using the provided [supplier].
+		 * Register a bean of type [T] which will be instantiated using the
+		 * provided [supplier].
 		 * @param T the bean type
 		 * @param autowirable set whether this bean is a candidate for getting
 		 * autowired into some other bean
@@ -370,14 +358,10 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 				it.prototype()
 			}
 			it.supplier {
-				SupplierContextDsl<T>(it).supplier()
-			}
-			val resolvableType = ResolvableType.forType(object: ParameterizedTypeReference<T>() {});
-			if (resolvableType.hasGenerics()) {
-				it.targetType(resolvableType)
+				SupplierContextDsl<T>(it, env).supplier()
 			}
 		}
-		return registry.registerBean(T::class.java, customizer)
+		return registry.registerBean(object: ParameterizedTypeReference<T>() {}, customizer)
 	}
 
 
@@ -386,7 +370,7 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 	 * to bean dependencies.
 	 */
 	@BeanRegistrarDslMarker
-	open class SupplierContextDsl<T>(@PublishedApi internal val context: SupplierContext) {
+	open class SupplierContextDsl<T>(@PublishedApi internal val context: SupplierContext, val env: Environment) {
 
 		/**
 		 * Return the bean instance that uniquely matches the given object type,
@@ -406,7 +390,7 @@ open class BeanRegistrarDsl(private val init: BeanRegistrarDsl.() -> Unit): Bean
 		 * @return a corresponding provider handle
 		 */
 		inline fun <reified T : Any> beanProvider() : ObjectProvider<T> =
-			context.beanProvider(ResolvableType.forType((object : ParameterizedTypeReference<T>() {}).type))
+			context.beanProvider(object : ParameterizedTypeReference<T>() {})
 	}
 
 	override fun register(registry: BeanRegistry, env: Environment) {

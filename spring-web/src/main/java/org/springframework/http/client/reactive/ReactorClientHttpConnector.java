@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -165,8 +165,9 @@ public class ReactorClientHttpConnector implements ClientHttpConnector, SmartLif
 		return requestSender
 				.send((request, outbound) -> requestCallback.apply(adaptRequest(method, uri, request, outbound)))
 				.responseConnection((response, connection) -> {
-					responseRef.set(new ReactorClientHttpResponse(response, connection));
-					return Mono.just((ClientHttpResponse) responseRef.get());
+					ReactorClientHttpResponse clientResponse = new ReactorClientHttpResponse(response, connection);
+					responseRef.set(clientResponse);
+					return Mono.just((ClientHttpResponse) clientResponse);
 				})
 				.next()
 				.doOnCancel(() -> {

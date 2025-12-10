@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,6 +44,8 @@ import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 
 import org.apache.commons.logging.LogFactory;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -298,8 +300,8 @@ class PathMatchingResourcePatternResolverTests {
 		@Test
 		void rootPatternRetrievalInJarFiles() throws IOException {
 			assertThat(resolver.getResources("classpath*:aspectj*.dtd")).extracting(Resource::getFilename)
-				.as("Could not find aspectj_1_5_0.dtd in the root of the aspectjweaver jar")
-				.containsExactly("aspectj_1_5_0.dtd");
+					.as("Could not find aspectj_1_5_0.dtd in the root of the aspectjweaver jar")
+					.containsExactly("aspectj_1_5_0.dtd");
 		}
 	}
 
@@ -309,6 +311,16 @@ class PathMatchingResourcePatternResolverTests {
 
 		@TempDir
 		Path temp;
+
+		@BeforeAll
+		static void suppressJarCaches() {
+			URLConnection.setDefaultUseCaches("jar", false);
+		}
+
+		@AfterAll
+		static void restoreJarCaches() {
+			URLConnection.setDefaultUseCaches("jar", true);
+		}
 
 		@Test
 		void javaDashJarFindsClassPathManifestEntries() throws Exception {
@@ -325,6 +337,21 @@ class PathMatchingResourcePatternResolverTests {
 			assertThat(result.replace("\\", "/")).contains("!!!!").contains("/lib/asset.jar!/assets/file.txt");
 		}
 
+		@Test
+		void javaDashJarFindsAbsoluteClassPathManifestEntries() throws Exception {
+			Path assetJar = this.temp.resolve("dependency").resolve("asset.jar");
+			Files.createDirectories(assetJar.getParent());
+			writeAssetJar(assetJar);
+			writeApplicationJarWithAbsolutePath(this.temp.resolve("app.jar"), assetJar);
+			String java = ProcessHandle.current().info().command().get();
+			Process process = new ProcessBuilder(java, "-jar", "app.jar")
+					.directory(this.temp.toFile())
+					.start();
+			assertThat(process.waitFor()).isZero();
+			String result = StreamUtils.copyToString(process.getInputStream(), StandardCharsets.UTF_8);
+			assertThat(result.replace("\\", "/")).contains("!!!!").contains("asset.jar!/assets/file.txt");
+		}
+
 		private void writeAssetJar(Path path) throws Exception {
 			try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(path.toFile()))) {
 				jar.putNextEntry(new ZipEntry("assets/"));
@@ -333,6 +360,7 @@ class PathMatchingResourcePatternResolverTests {
 				StreamUtils.copy("test", StandardCharsets.UTF_8, jar);
 				jar.closeEntry();
 			}
+
 			assertThat(new FileSystemResource(path).exists()).isTrue();
 			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + path + ResourceUtils.JAR_URL_SEPARATOR).exists()).isTrue();
 			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + path + ResourceUtils.JAR_URL_SEPARATOR + "assets/file.txt").exists()).isTrue();
@@ -340,12 +368,49 @@ class PathMatchingResourcePatternResolverTests {
 			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + "X" + path + ResourceUtils.JAR_URL_SEPARATOR).exists()).isFalse();
 			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + "X" + path + ResourceUtils.JAR_URL_SEPARATOR + "assets/file.txt").exists()).isFalse();
 			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + "X" + path + ResourceUtils.JAR_URL_SEPARATOR + "assets/none.txt").exists()).isFalse();
+
+			Resource resource = new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + path + ResourceUtils.JAR_URL_SEPARATOR + "assets/file.txt");
+			try (InputStream is = resource.getInputStream()) {
+				assertThat(resource.exists()).isTrue();
+				assertThat(resource.createRelative("file.txt").exists()).isTrue();
+				assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + path + ResourceUtils.JAR_URL_SEPARATOR).exists()).isTrue();
+				is.readAllBytes();
+			}
 		}
 
 		private void writeApplicationJar(Path path) throws Exception {
 			Manifest manifest = new Manifest();
 			Attributes mainAttributes = manifest.getMainAttributes();
 			mainAttributes.put(Name.CLASS_PATH, buildSpringClassPath() + "lib/asset.jar");
+			mainAttributes.put(Name.MAIN_CLASS, ClassPathManifestEntriesTestApplication.class.getName());
+			mainAttributes.put(Name.MANIFEST_VERSION, "1.0");
+			try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(path.toFile()), manifest)) {
+				String appClassResource = ClassUtils.convertClassNameToResourcePath(
+						ClassPathManifestEntriesTestApplication.class.getName()) + ClassUtils.CLASS_FILE_SUFFIX;
+				String folder = "";
+				for (String name : appClassResource.split("/")) {
+					if (!name.endsWith(ClassUtils.CLASS_FILE_SUFFIX)) {
+						folder += name + "/";
+						jar.putNextEntry(new ZipEntry(folder));
+						jar.closeEntry();
+					}
+					else {
+						jar.putNextEntry(new ZipEntry(folder + name));
+						try (InputStream in = getClass().getResourceAsStream(name)) {
+							in.transferTo(jar);
+						}
+						jar.closeEntry();
+					}
+				}
+			}
+			assertThat(new FileSystemResource(path).exists()).isTrue();
+			assertThat(new UrlResource(ResourceUtils.JAR_URL_PREFIX + ResourceUtils.FILE_URL_PREFIX + path + ResourceUtils.JAR_URL_SEPARATOR).exists()).isTrue();
+		}
+
+		private void writeApplicationJarWithAbsolutePath(Path path, Path assetJar) throws Exception {
+			Manifest manifest = new Manifest();
+			Attributes mainAttributes = manifest.getMainAttributes();
+			mainAttributes.put(Name.CLASS_PATH, buildSpringClassPath() + assetJar.toAbsolutePath());
 			mainAttributes.put(Name.MAIN_CLASS, ClassPathManifestEntriesTestApplication.class.getName());
 			mainAttributes.put(Name.MANIFEST_VERSION, "1.0");
 			try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(path.toFile()), manifest)) {

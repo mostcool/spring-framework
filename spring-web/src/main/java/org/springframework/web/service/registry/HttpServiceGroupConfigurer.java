@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 
 package org.springframework.web.service.registry;
 
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import org.springframework.core.Ordered;
@@ -66,29 +64,76 @@ public interface HttpServiceGroupConfigurer<CB> extends Ordered {
 		Groups<CB> filter(Predicate<HttpServiceGroup> predicate);
 
 		/**
-		 * Configure the client for the selected groups.
-		 * This is called once for each selected group.
+		 * Callback to customize the client builder for every group matched by
+		 * the specified name or predicate filters, or to all groups
+		 * if no filters are specified.
 		 */
-		void configureClient(Consumer<CB> clientConfigurer);
+		void forEachClient(ClientCallback<CB> callback);
 
 		/**
-		 * Variant of {@link #configureClient(Consumer)} with access to the
-		 * group being configured.
+		 * Callback to supply the client builder for every group matched by
+		 * the specified name or predicate filters, or to all groups
+		 * if no filters are specified.
 		 */
-		void configureClient(BiConsumer<HttpServiceGroup, CB> clientConfigurer);
+		void forEachClient(InitializingClientCallback<CB> callback);
 
 		/**
-		 * Configure the {@link HttpServiceProxyFactory} for the selected groups.
-		 * This is called once for each selected group.
+		 * Callback to customize the proxy factory for every group matched by
+		 * the specified name or predicate filters, or to all groups
+		 * if no filters are specified.
 		 */
-		void configureProxyFactory(BiConsumer<HttpServiceGroup, HttpServiceProxyFactory.Builder> proxyFactoryConfigurer);
+		void forEachProxyFactory(ProxyFactoryCallback callback);
 
 		/**
-		 * Configure the client and {@link HttpServiceProxyFactory} for the selected groups.
-		 * This is called once for each selected group.
+		 * Callback to customize the client builder and the proxy factory for
+		 * every group matched by the specified name or predicate filters,
+		 * or to all groups if no filters are specified.
 		 */
-		void configure(BiConsumer<HttpServiceGroup, CB> clientConfigurer,
-				BiConsumer<HttpServiceGroup, HttpServiceProxyFactory.Builder> proxyFactoryConfigurer);
+		void forEachGroup(GroupCallback<CB> callback);
+	}
+
+
+	/**
+	 * Callback to configure the client for a given group.
+	 * @param <CB> the type of client builder, i.e. {@code RestClient} or {@code WebClient} builder.
+	 */
+	@FunctionalInterface
+	interface ClientCallback<CB> {
+
+		void withClient(HttpServiceGroup group, CB clientBuilder);
+	}
+
+
+	/**
+	 * Callback to provide the client builder rather than customize it.
+	 * @param <CB> the type of client builder, i.e. {@code RestClient} or {@code WebClient} builder.
+	 */
+	@FunctionalInterface
+	interface InitializingClientCallback<CB> {
+
+		CB initClient(HttpServiceGroup group);
+	}
+
+
+	/**
+	 * Callback to configure the {@code HttpServiceProxyFactory} for a given group.
+	 */
+	@FunctionalInterface
+	interface ProxyFactoryCallback {
+
+		void withProxyFactory(HttpServiceGroup group, HttpServiceProxyFactory.Builder factoryBuilder);
+	}
+
+
+	/**
+	 * Callback to configure the client and {@code HttpServiceProxyFactory} for a given group.
+	 * @param <CB> the type of client builder, i.e. {@code RestClient} or {@code WebClient} builder.
+	 */
+	@FunctionalInterface
+	interface GroupCallback<CB> {
+
+		void withGroup(HttpServiceGroup group,
+				CB clientBuilder, HttpServiceProxyFactory.Builder factoryBuilder);
 	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import jakarta.xml.bind.annotation.XmlAccessType;
 import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.http.HttpHeaders;
@@ -93,7 +94,7 @@ class XmlContentTests {
 				.exchange()
 				.expectStatus().isOk()
 				.expectBody()
-				.xpath("//person/name").string(startsWith("J"));
+				.xpath("//person/name").string(v -> MatcherAssert.assertThat(v, startsWith("J")));
 	}
 
 	@Test

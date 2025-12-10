@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,9 +27,8 @@ public class GenericBeanRegistrar implements BeanRegistrar {
 
 	@Override
 	public void register(BeanRegistry registry, Environment env) {
-		ParameterizedTypeReference<Supplier<Foo>> type = new ParameterizedTypeReference<>() {};
-		registry.registerBean("fooSupplier", Supplier.class, spec -> spec.targetType(type)
-				.supplier(context-> (Supplier<Foo>) Foo::new));
+		registry.registerBean("fooSupplier", new ParameterizedTypeReference<Supplier<Foo>>() {}, spec ->
+				spec.supplier(context-> (Supplier<Foo>) Foo::new));
 	}
 
 	public record Foo() {}

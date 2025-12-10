@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -219,7 +219,7 @@ public abstract class TestContextAnnotationUtils {
 	 * @see #findAnnotationDescriptorForTypes(Class, Class...)
 	 */
 	public static <T extends Annotation> @Nullable AnnotationDescriptor<T> findAnnotationDescriptor(
-			Class<?> clazz, Class<T> annotationType) {
+			@Nullable Class<?> clazz, Class<T> annotationType) {
 
 		Assert.notNull(annotationType, "Annotation type must not be null");
 		return findAnnotationDescriptor(clazz, annotationType, TestContextAnnotationUtils::searchEnclosingClass,

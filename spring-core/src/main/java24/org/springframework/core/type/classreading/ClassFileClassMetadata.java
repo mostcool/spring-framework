@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,9 @@ import org.springframework.util.StringUtils;
 /**
  * {@link AnnotationMetadata} implementation that leverages
  * the {@link java.lang.classfile.ClassFile} API.
+ *
  * @author Brian Clozel
+ * @since 7.0
  */
 class ClassFileClassMetadata implements AnnotationMetadata {
 
@@ -66,19 +68,22 @@ class ClassFileClassMetadata implements AnnotationMetadata {
 
 	private @Nullable Set<String> annotationTypes;
 
+
 	ClassFileClassMetadata(String className, AccessFlags accessFlags, @Nullable String enclosingClassName,
 				@Nullable String superClassName, boolean independentInnerClass, Set<String> interfaceNames,
 				Set<String> memberClassNames, Set<MethodMetadata> declaredMethods, MergedAnnotations mergedAnnotations) {
+
 		this.className = className;
 		this.accessFlags = accessFlags;
 		this.enclosingClassName = enclosingClassName;
-		this.superClassName = superClassName;
+		this.superClassName = (!className.endsWith(".package-info")) ? superClassName : null;
 		this.independentInnerClass = independentInnerClass;
 		this.interfaceNames = interfaceNames;
 		this.memberClassNames = memberClassNames;
 		this.declaredMethods = declaredMethods;
 		this.mergedAnnotations = mergedAnnotations;
 	}
+
 
 	@Override
 	public String getClassName() {
@@ -215,6 +220,7 @@ class ClassFileClassMetadata implements AnnotationMetadata {
 		return builder.build();
 	}
 
+
 	static class Builder {
 
 		private final ClassLoader clasLoader;
@@ -268,18 +274,16 @@ class ClassFileClassMetadata implements AnnotationMetadata {
 		void nestMembers(String currentClassName, InnerClassesAttribute innerClasses) {
 			for (InnerClassInfo classInfo : innerClasses.classes()) {
 				String innerClassName = classInfo.innerClass().name().stringValue();
-				// skip parent inner classes
-				if (!innerClassName.startsWith(currentClassName)) {
-					continue;
-				}
-				// the current class is an inner class
-				else if (currentClassName.equals(innerClassName)) {
+				if (currentClassName.equals(innerClassName)) {
+					// the current class is an inner class
 					this.innerAccessFlags = classInfo.flags();
 				}
-				// collecting data about actual inner classes
-				else {
-					this.memberClassNames.add(ClassUtils.convertResourcePathToClassName(innerClassName));
-				}
+				classInfo.outerClass().ifPresent(outerClass -> {
+					if (outerClass.name().stringValue().equals(currentClassName)) {
+						// collecting data about actual inner classes
+						this.memberClassNames.add(ClassUtils.convertResourcePathToClassName(innerClassName));
+					}
+				});
 			}
 		}
 
@@ -299,7 +303,6 @@ class ClassFileClassMetadata implements AnnotationMetadata {
 			return new ClassFileClassMetadata(this.className, this.accessFlags, this.enclosingClassName, this.superClassName,
 					independentInnerClass, this.interfaceNames, this.memberClassNames, this.declaredMethods, this.mergedAnnotations);
 		}
-
 	}
 
 }

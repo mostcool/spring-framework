@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import org.springframework.beans.factory.BeanRegistrar;
 import org.springframework.beans.factory.BeanRegistry;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.core.ResolvableType;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.StandardEnvironment;
 
@@ -206,18 +205,10 @@ public class BeanRegistryAdapterTests {
 	}
 
 	@Test
-	void customTargetTypeFromResolvableType() {
-		BeanRegistryAdapter adapter = new BeanRegistryAdapter(this.beanFactory, this.beanFactory, env, TargetTypeBeanRegistrar.class);
-		new TargetTypeBeanRegistrar().register(adapter, env);
-		RootBeanDefinition beanDefinition = (RootBeanDefinition)this.beanFactory.getBeanDefinition("fooSupplierFromResolvableType");
-		assertThat(beanDefinition.getResolvableType().resolveGeneric(0)).isEqualTo(Foo.class);
-	}
-
-	@Test
-	void customTargetTypeFromTypeReference() {
-		BeanRegistryAdapter adapter = new BeanRegistryAdapter(this.beanFactory, this.beanFactory, env, TargetTypeBeanRegistrar.class);
-		new TargetTypeBeanRegistrar().register(adapter, env);
-		RootBeanDefinition beanDefinition = (RootBeanDefinition)this.beanFactory.getBeanDefinition("fooSupplierFromTypeReference");
+	void genericType() {
+		BeanRegistryAdapter adapter = new BeanRegistryAdapter(this.beanFactory, this.beanFactory, env, GenericTypeBeanRegistrar.class);
+		new GenericTypeBeanRegistrar().register(adapter, env);
+		RootBeanDefinition beanDefinition = (RootBeanDefinition)this.beanFactory.getBeanDefinition("fooSupplier");
 		assertThat(beanDefinition.getResolvableType().resolveGeneric(0)).isEqualTo(Foo.class);
 	}
 
@@ -325,15 +316,11 @@ public class BeanRegistryAdapterTests {
 		}
 	}
 
-	private static class TargetTypeBeanRegistrar implements BeanRegistrar {
+	private static class GenericTypeBeanRegistrar implements BeanRegistrar {
 
 		@Override
 		public void register(BeanRegistry registry, Environment env) {
-			registry.registerBean("fooSupplierFromResolvableType", Foo.class,
-					spec -> spec.targetType(ResolvableType.forClassWithGenerics(Supplier.class, Foo.class)));
-			ParameterizedTypeReference<Supplier<Foo>> type = new ParameterizedTypeReference<>() {};
-			registry.registerBean("fooSupplierFromTypeReference", Supplier.class,
-					spec -> spec.targetType(type));
+			registry.registerBean("fooSupplier", new ParameterizedTypeReference<Supplier<Foo>>() {});
 		}
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import org.springframework.util.StringUtils;
  * Extension of {@code Cookie} with extra attributes, as defined in
  * <a href="https://tools.ietf.org/html/rfc6265">RFC 6265</a>.
  *
- * <p>As of Spring 6.0, this set of mocks is designed on a Servlet 6.0 baseline.
+ * <p>As of Spring 7.0, this set of mocks is designed on a Servlet 6.1 baseline.
  *
  * @author Vedran Pavic
  * @author Juergen Hoeller

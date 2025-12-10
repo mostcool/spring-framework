@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,9 @@ import org.springframework.util.ClassUtils;
 /**
  * {@link MethodMetadata} extracted from class bytecode using the
  * {@link java.lang.classfile.ClassFile} API.
+ *
  * @author Brian Clozel
+ * @since 7.0
  */
 class ClassFileMethodMetadata implements MethodMetadata {
 
@@ -54,7 +56,10 @@ class ClassFileMethodMetadata implements MethodMetadata {
 
 	private final MergedAnnotations annotations;
 
-	ClassFileMethodMetadata(String methodName, AccessFlags accessFlags, @Nullable String declaringClassName, String returnTypeName, Object source, MergedAnnotations annotations) {
+
+	ClassFileMethodMetadata(String methodName, AccessFlags accessFlags, @Nullable String declaringClassName,
+			String returnTypeName, Object source, MergedAnnotations annotations) {
+
 		this.methodName = methodName;
 		this.accessFlags = accessFlags;
 		this.declaringClassName = declaringClassName;
@@ -62,6 +67,7 @@ class ClassFileMethodMetadata implements MethodMetadata {
 		this.source = source;
 		this.annotations = annotations;
 	}
+
 
 	@Override
 	public String getMethodName() {
@@ -131,6 +137,7 @@ class ClassFileMethodMetadata implements MethodMetadata {
 		return this.source.toString();
 	}
 
+
 	static ClassFileMethodMetadata of(MethodModel methodModel, ClassLoader classLoader) {
 		String methodName = methodModel.methodName().stringValue();
 		AccessFlags flags = methodModel.flags();
@@ -146,13 +153,13 @@ class ClassFileMethodMetadata implements MethodMetadata {
 		return new ClassFileMethodMetadata(methodName, flags, declaringClassName, returnTypeName, source, annotations);
 	}
 
+
 	/**
 	 * {@link MergedAnnotation} source.
-	 *
 	 * @param declaringClassName the name of the declaring class
-	 * @param flags              the access flags
-	 * @param methodName         the name of the method
-	 * @param descriptor         the bytecode descriptor for this method
+	 * @param flags the access flags
+	 * @param methodName the name of the method
+	 * @param descriptor the bytecode descriptor for this method
 	 */
 	record Source(@Nullable String declaringClassName, AccessFlags flags, String methodName, MethodTypeDesc descriptor) {
 

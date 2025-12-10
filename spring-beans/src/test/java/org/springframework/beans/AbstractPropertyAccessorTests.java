@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -472,7 +472,7 @@ abstract class AbstractPropertyAccessorTests {
 		assertThat(target.getAge()).as("age is OK").isEqualTo(age);
 		assertThat(name).as("name is OK").isEqualTo(target.getName());
 		accessor.setPropertyValues(new MutablePropertyValues());
-		// Check its unchanged
+		// Check it's unchanged
 		assertThat(target.getAge()).as("age is OK").isEqualTo(age);
 		assertThat(name).as("name is OK").isEqualTo(target.getName());
 	}

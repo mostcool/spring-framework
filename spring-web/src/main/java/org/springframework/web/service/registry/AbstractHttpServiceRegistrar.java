@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,14 @@
 
 package org.springframework.web.service.registry;
 
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.stream.Stream;
+
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
@@ -38,6 +43,7 @@ import org.springframework.core.type.MethodMetadata;
 import org.springframework.core.type.classreading.MetadataReader;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.service.annotation.HttpExchange;
 
 /**
@@ -74,7 +80,7 @@ import org.springframework.web.service.annotation.HttpExchange;
  * @see HttpServiceProxyRegistryFactoryBean
  */
 public abstract class AbstractHttpServiceRegistrar implements
-		ImportBeanDefinitionRegistrar, EnvironmentAware, ResourceLoaderAware, BeanFactoryAware {
+		ImportBeanDefinitionRegistrar, EnvironmentAware, ResourceLoaderAware, BeanFactoryAware, BeanClassLoaderAware {
 
 	/**
 	 * The bean name of the {@link HttpServiceProxyRegistry}.
@@ -90,6 +96,8 @@ public abstract class AbstractHttpServiceRegistrar implements
 	private @Nullable ResourceLoader resourceLoader;
 
 	private @Nullable BeanFactory beanFactory;
+
+	private @Nullable ClassLoader beanClassLoader;
 
 	private final GroupsMetadata groupsMetadata = new GroupsMetadata();
 
@@ -121,6 +129,11 @@ public abstract class AbstractHttpServiceRegistrar implements
 		this.beanFactory = beanFactory;
 	}
 
+	@Override
+	public void setBeanClassLoader(ClassLoader beanClassLoader) {
+		this.beanClassLoader = beanClassLoader;
+	}
+
 
 	@Override
 	public final void registerBeanDefinitions(
@@ -134,8 +147,11 @@ public abstract class AbstractHttpServiceRegistrar implements
 
 		registerHttpServices(new DefaultGroupRegistry(), metadata);
 
-		RootBeanDefinition proxyRegistryBeanDef = createOrGetRegistry(beanRegistry);
+		if (this.groupsMetadata.isEmpty()) {
+			return;
+		}
 
+		RootBeanDefinition proxyRegistryBeanDef = createOrGetRegistry(beanRegistry);
 		mergeGroups(proxyRegistryBeanDef);
 
 		this.groupsMetadata.forEachRegistration((groupName, types) -> types.forEach(type -> {
@@ -149,6 +165,16 @@ public abstract class AbstractHttpServiceRegistrar implements
 			}
 		}));
 	}
+
+	/**
+	 * This method is called before any bean definition registrations are made.
+	 * Subclasses must implement it to register the HTTP Services for which bean
+	 * definitions for which proxies need to be created.
+	 * @param registry to perform HTTP Service registrations with
+	 * @param importingClassMetadata annotation metadata of the importing class
+	 */
+	protected abstract void registerHttpServices(
+			GroupRegistry registry, AnnotationMetadata importingClassMetadata);
 
 	private RootBeanDefinition createOrGetRegistry(BeanDefinitionRegistry beanRegistry) {
 		if (!beanRegistry.containsBeanDefinition(HTTP_SERVICE_PROXY_REGISTRY_BEAN_NAME)) {
@@ -164,27 +190,6 @@ public abstract class AbstractHttpServiceRegistrar implements
 		}
 	}
 
-	/**
-	 * This method is called before any bean definition registrations are made.
-	 * Subclasses must implement it to register the HTTP Services for which bean
-	 * definitions for which proxies need to be created.
-	 * @param registry to perform HTTP Service registrations with
-	 * @param importingClassMetadata annotation metadata of the importing class
-	 */
-	protected abstract void registerHttpServices(
-			GroupRegistry registry, AnnotationMetadata importingClassMetadata);
-
-	private ClassPathScanningCandidateComponentProvider getScanner() {
-		if (this.scanner == null) {
-			Assert.state(this.environment != null, "Environment has not been set");
-			Assert.state(this.resourceLoader != null, "ResourceLoader has not been set");
-			this.scanner = new HttpExchangeClassPathScanningCandidateComponentProvider();
-			this.scanner.setEnvironment(this.environment);
-			this.scanner.setResourceLoader(this.resourceLoader);
-		}
-		return this.scanner;
-	}
-
 	private void mergeGroups(RootBeanDefinition proxyRegistryBeanDef) {
 		ConstructorArgumentValues args = proxyRegistryBeanDef.getConstructorArgumentValues();
 		ConstructorArgumentValues.ValueHolder valueHolder = args.getArgumentValue(0, GroupsMetadata.class);
@@ -197,7 +202,24 @@ public abstract class AbstractHttpServiceRegistrar implements
 	private Object getProxyInstance(String groupName, String httpServiceType) {
 		Assert.state(this.beanFactory != null, "BeanFactory has not been set");
 		HttpServiceProxyRegistry registry = this.beanFactory.getBean(HTTP_SERVICE_PROXY_REGISTRY_BEAN_NAME, HttpServiceProxyRegistry.class);
-		return registry.getClient(groupName, GroupsMetadata.loadClass(httpServiceType));
+		return registry.getClient(groupName, ClassUtils.resolveClassName(httpServiceType, this.beanClassLoader));
+	}
+
+	/**
+	 * Find HTTP Service types under the given base package, looking for
+	 * interfaces with type or method {@link HttpExchange} annotations.
+	 * @param basePackage the names of packages to look under
+	 * @return match bean definitions
+	 */
+	private Stream<BeanDefinition> findHttpServices(String basePackage) {
+		if (this.scanner == null) {
+			Assert.state(this.environment != null, "Environment has not been set");
+			Assert.state(this.resourceLoader != null, "ResourceLoader has not been set");
+			this.scanner = new HttpExchangeClassPathScanningCandidateComponentProvider();
+			this.scanner.setEnvironment(this.environment);
+			this.scanner.setResourceLoader(this.resourceLoader);
+		}
+		return this.scanner.findCandidateComponents(basePackage).stream();
 	}
 
 
@@ -207,7 +229,8 @@ public abstract class AbstractHttpServiceRegistrar implements
 	protected interface GroupRegistry {
 
 		/**
-		 * Perform HTTP Service registrations for the given group.
+		 * Perform HTTP Service registrations for the given group, either
+		 * creating the group if it does not exist, or updating the existing one.
 		 */
 		default GroupSpec forGroup(String name) {
 			return forGroup(name, HttpServiceGroup.ClientType.UNSPECIFIED);
@@ -232,13 +255,18 @@ public abstract class AbstractHttpServiceRegistrar implements
 		interface GroupSpec {
 
 			/**
-			 * List HTTP Service types to create proxies for.
+			 * Register HTTP Service types associated with this group.
 			 */
 			GroupSpec register(Class<?>... serviceTypes);
 
 			/**
+			 * Register HTTP Service types using fully qualified type names.
+			 */
+			GroupSpec registerTypeNames(String... serviceTypes);
+
+			/**
 			 * Detect HTTP Service types in the given packages, looking for
-			 * interfaces with a type and/or method {@link HttpExchange} annotation.
+			 * interfaces with type or method {@link HttpExchange} annotations.
 			 */
 			GroupSpec detectInBasePackages(Class<?>... packageClasses);
 
@@ -246,7 +274,6 @@ public abstract class AbstractHttpServiceRegistrar implements
 			 * Variant of {@link #detectInBasePackages(Class[])} with a String package name.
 			 */
 			GroupSpec detectInBasePackages(String... packageNames);
-
 		}
 	}
 
@@ -261,48 +288,48 @@ public abstract class AbstractHttpServiceRegistrar implements
 			return new DefaultGroupSpec(name, clientType);
 		}
 
-		/**
-		 * Default implementation of {@link GroupSpec}.
-		 */
 		private class DefaultGroupSpec implements GroupSpec {
 
 			private final GroupsMetadata.Registration registration;
 
-			public DefaultGroupSpec(String groupName, HttpServiceGroup.ClientType clientType) {
+			DefaultGroupSpec(String groupName, HttpServiceGroup.ClientType clientType) {
 				clientType = (clientType != HttpServiceGroup.ClientType.UNSPECIFIED ? clientType : defaultClientType);
 				this.registration = groupsMetadata.getOrCreateGroup(groupName, clientType);
 			}
 
 			@Override
-			public GroupSpec register(Class<?>... serviceTypes) {
-				for (Class<?> serviceType : serviceTypes) {
-					this.registration.httpServiceTypeNames().add(serviceType.getName());
-				}
+			public GroupRegistry.GroupSpec register(Class<?>... serviceTypes) {
+				Arrays.stream(serviceTypes).map(Class::getName).forEach(this::registerServiceTypeName);
 				return this;
 			}
 
 			@Override
-			public GroupSpec detectInBasePackages(Class<?>... packageClasses) {
-				for (Class<?> packageClass : packageClasses) {
-					detect(packageClass.getPackageName());
-				}
+			public GroupRegistry.GroupSpec registerTypeNames(String... serviceTypes) {
+				Arrays.stream(serviceTypes).forEach(this::registerServiceTypeName);
 				return this;
 			}
 
 			@Override
-			public GroupSpec detectInBasePackages(String... packageNames) {
-				for (String packageName : packageNames) {
-					detect(packageName);
-				}
+			public GroupRegistry.GroupSpec detectInBasePackages(Class<?>... packageClasses) {
+				Arrays.stream(packageClasses).map(Class::getPackageName).forEach(this::detectInBasePackage);
 				return this;
 			}
 
-			private void detect(String packageName) {
-				for (BeanDefinition definition : getScanner().findCandidateComponents(packageName)) {
-					if (definition.getBeanClassName() != null) {
-						this.registration.httpServiceTypeNames().add(definition.getBeanClassName());
-					}
-				}
+			@Override
+			public GroupRegistry.GroupSpec detectInBasePackages(String... packageNames) {
+				Arrays.stream(packageNames).forEach(this::detectInBasePackage);
+				return this;
+			}
+
+			private void detectInBasePackage(String packageName) {
+				findHttpServices(packageName)
+						.map(BeanDefinition::getBeanClassName)
+						.filter(Objects::nonNull)
+						.forEach(this::registerServiceTypeName);
+			}
+
+			private void registerServiceTypeName(String httpServiceTypeName) {
+				this.registration.httpServiceTypeNames().add(httpServiceTypeName);
 			}
 		}
 	}

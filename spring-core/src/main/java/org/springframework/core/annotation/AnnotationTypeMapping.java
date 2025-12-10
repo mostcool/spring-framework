@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,9 +88,7 @@ final class AnnotationTypeMapping {
 		this.root = (source != null ? source.getRoot() : this);
 		this.distance = (source == null ? 0 : source.getDistance() + 1);
 		this.annotationType = annotationType;
-		this.metaTypes = merge(
-				source != null ? source.getMetaTypes() : null,
-				annotationType);
+		this.metaTypes = merge((source != null ? source.getMetaTypes() : null), annotationType);
 		this.annotation = annotation;
 		this.attributes = AttributeMethods.forAnnotationType(annotationType);
 		this.mirrorSets = new MirrorSets();

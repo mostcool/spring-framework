@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,10 +42,11 @@ import org.springframework.test.context.ContextLoader;
  *
  * @author Sam Brannen
  * @since 5.0
- * @see ExtendWith
- * @see SpringExtension
- * @see ContextConfiguration
- * @see org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig
+ * @see org.junit.jupiter.api.extension.ExtendWith @ExtendWith
+ * @see org.springframework.test.context.junit.jupiter.SpringExtension SpringExtension
+ * @see org.springframework.test.context.junit.jupiter.SpringExtensionConfig @SpringExtensionConfig
+ * @see org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig @SpringJUnitWebConfig
+ * @see org.springframework.test.context.ContextConfiguration @ContextConfiguration
  */
 @ExtendWith(SpringExtension.class)
 @ContextConfiguration

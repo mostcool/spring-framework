@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -287,7 +287,7 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 	 */
 	@Override
 	public void stop() {
-		stopBeans();
+		stopBeans(false);
 		this.running = false;
 	}
 
@@ -308,15 +308,33 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 		catch (ApplicationContextException ex) {
 			// Some bean failed to auto-start within context refresh:
 			// stop already started beans on context refresh failure.
-			stopBeans();
+			stopBeans(false);
 			throw ex;
 		}
 		this.running = true;
 	}
 
 	@Override
+	public void onRestart() {
+		this.stoppedBeans = null;
+		if (this.running) {
+			stopBeans(true);
+		}
+		startBeans(true);
+		this.running = true;
+	}
+
+	@Override
+	public void onPause() {
+		if (this.running) {
+			stopBeans(true);
+			this.running = false;
+		}
+	}
+
+	@Override
 	public void onClose() {
-		stopBeans();
+		stopBeans(false);
 		this.running = false;
 	}
 
@@ -331,7 +349,7 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 	void stopForRestart() {
 		if (this.running) {
 			this.stoppedBeans = ConcurrentHashMap.newKeySet();
-			stopBeans();
+			stopBeans(false);
 			this.running = false;
 		}
 	}
@@ -351,8 +369,9 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 		lifecycleBeans.forEach((beanName, bean) -> {
 			if (!autoStartupOnly || isAutoStartupCandidate(beanName, bean)) {
 				int startupPhase = getPhase(bean);
-				phases.computeIfAbsent(startupPhase, phase -> new LifecycleGroup(phase, lifecycleBeans, autoStartupOnly))
-						.add(beanName, bean);
+				phases.computeIfAbsent(
+						startupPhase, phase -> new LifecycleGroup(phase, lifecycleBeans, autoStartupOnly, false))
+							.add(beanName, bean);
 			}
 		});
 
@@ -414,14 +433,15 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 				(!(bean instanceof SmartLifecycle smartLifecycle) || smartLifecycle.isAutoStartup()));
 	}
 
-	private void stopBeans() {
+	private void stopBeans(boolean pauseableOnly) {
 		Map<String, Lifecycle> lifecycleBeans = getLifecycleBeans();
 		Map<Integer, LifecycleGroup> phases = new TreeMap<>(Comparator.reverseOrder());
 
 		lifecycleBeans.forEach((beanName, bean) -> {
 			int shutdownPhase = getPhase(bean);
-			phases.computeIfAbsent(shutdownPhase, phase -> new LifecycleGroup(phase, lifecycleBeans, false))
-					.add(beanName, bean);
+			phases.computeIfAbsent(
+					shutdownPhase, phase -> new LifecycleGroup(phase, lifecycleBeans, false, pauseableOnly))
+						.add(beanName, bean);
 		});
 
 		if (!phases.isEmpty()) {
@@ -436,13 +456,13 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 	 * @param beanName the name of the bean to stop
 	 */
 	private void doStop(Map<String, ? extends Lifecycle> lifecycleBeans, final String beanName,
-			final CountDownLatch latch, final Set<String> countDownBeanNames) {
+			boolean pauseableOnly, final CountDownLatch latch, final Set<String> countDownBeanNames) {
 
 		Lifecycle bean = lifecycleBeans.remove(beanName);
 		if (bean != null) {
 			String[] dependentBeans = getBeanFactory().getDependentBeans(beanName);
 			for (String dependentBean : dependentBeans) {
-				doStop(lifecycleBeans, dependentBean, latch, countDownBeanNames);
+				doStop(lifecycleBeans, dependentBean, pauseableOnly, latch, countDownBeanNames);
 			}
 			try {
 				if (bean.isRunning()) {
@@ -451,20 +471,26 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 						stoppedBeans.add(beanName);
 					}
 					if (bean instanceof SmartLifecycle smartLifecycle) {
-						if (logger.isTraceEnabled()) {
-							logger.trace("Asking bean '" + beanName + "' of type [" +
-									bean.getClass().getName() + "] to stop");
-						}
-						countDownBeanNames.add(beanName);
-						smartLifecycle.stop(() -> {
-							latch.countDown();
-							countDownBeanNames.remove(beanName);
-							if (logger.isDebugEnabled()) {
-								logger.debug("Bean '" + beanName + "' completed its stop procedure");
+						if (!pauseableOnly || smartLifecycle.isPauseable()) {
+							if (logger.isTraceEnabled()) {
+								logger.trace("Asking bean '" + beanName + "' of type [" +
+										bean.getClass().getName() + "] to stop");
 							}
-						});
+							countDownBeanNames.add(beanName);
+							smartLifecycle.stop(() -> {
+								latch.countDown();
+								countDownBeanNames.remove(beanName);
+								if (logger.isDebugEnabled()) {
+									logger.debug("Bean '" + beanName + "' completed its stop procedure");
+								}
+							});
+						}
+						else {
+							// Don't wait for beans that aren't pauseable...
+							latch.countDown();
+						}
 					}
-					else {
+					else if (!pauseableOnly) {
 						if (logger.isTraceEnabled()) {
 							logger.trace("Stopping bean '" + beanName + "' of type [" +
 									bean.getClass().getName() + "]");
@@ -552,14 +578,19 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 
 		private final boolean autoStartupOnly;
 
+		private final boolean pauseableOnly;
+
 		private final List<LifecycleGroupMember> members = new ArrayList<>();
 
 		private int smartMemberCount;
 
-		public LifecycleGroup(int phase, Map<String, ? extends Lifecycle> lifecycleBeans, boolean autoStartupOnly) {
+		public LifecycleGroup(int phase, Map<String, ? extends Lifecycle> lifecycleBeans,
+				boolean autoStartupOnly, boolean pauseableOnly) {
+
 			this.phase = phase;
 			this.lifecycleBeans = lifecycleBeans;
 			this.autoStartupOnly = autoStartupOnly;
+			this.pauseableOnly = pauseableOnly;
 		}
 
 		public void add(String name, Lifecycle bean) {
@@ -611,7 +642,7 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 			Set<String> lifecycleBeanNames = new HashSet<>(this.lifecycleBeans.keySet());
 			for (LifecycleGroupMember member : this.members) {
 				if (lifecycleBeanNames.contains(member.name)) {
-					doStop(this.lifecycleBeans, member.name, latch, countDownBeanNames);
+					doStop(this.lifecycleBeans, member.name, this.pauseableOnly, latch, countDownBeanNames);
 				}
 				else if (member.bean instanceof SmartLifecycle) {
 					// Already removed: must have been a dependent bean from another phase
@@ -683,34 +714,35 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 	 */
 	private class CracResourceAdapter implements org.crac.Resource {
 
-		private @Nullable CyclicBarrier barrier;
+		private final CyclicBarrier beforeCheckpointBarrier = new CyclicBarrier(2);
+		private final CyclicBarrier afterRestoreBarrier = new CyclicBarrier(2);
 
 		@Override
 		public void beforeCheckpoint(org.crac.Context<? extends org.crac.Resource> context) {
-			// A non-daemon thread for preventing an accidental JVM shutdown before the checkpoint
-			this.barrier = new CyclicBarrier(2);
-
-			Thread thread = new Thread(() -> {
-				awaitPreventShutdownBarrier();
-				// Checkpoint happens here
-				awaitPreventShutdownBarrier();
-			}, "prevent-shutdown");
-
+			Thread thread = new Thread(this::preventShutdown, "prevent-shutdown");
 			thread.setDaemon(false);
 			thread.start();
-			awaitPreventShutdownBarrier();
 
 			logger.debug("Stopping Spring-managed lifecycle beans before JVM checkpoint");
 			stopForRestart();
 		}
 
+		private void preventShutdown() {
+			awaitBarrier(this.beforeCheckpointBarrier);
+			// Checkpoint happens here
+			awaitBarrier(this.afterRestoreBarrier);
+		}
+
 		@Override
 		public void afterRestore(org.crac.Context<? extends org.crac.Resource> context) {
+			// Unlock barrier for beforeCheckpoint
+			awaitBarrier(this.beforeCheckpointBarrier);
+
 			logger.info("Restarting Spring-managed lifecycle beans after JVM restore");
 			restartAfterStop();
 
-			// Barrier for prevent-shutdown thread not needed anymore
-			this.barrier = null;
+			// Unlock barrier for afterRestore to shutdown "prevent-shutdown" thread
+			awaitBarrier(this.afterRestoreBarrier);
 
 			if (!checkpointOnRefresh) {
 				logger.info("Spring-managed lifecycle restart completed (restored JVM running for " +
@@ -718,14 +750,12 @@ public class DefaultLifecycleProcessor implements LifecycleProcessor, BeanFactor
 			}
 		}
 
-		private void awaitPreventShutdownBarrier() {
+		private void awaitBarrier(CyclicBarrier barrier) {
 			try {
-				if (this.barrier != null) {
-					this.barrier.await();
-				}
+				barrier.await();
 			}
 			catch (Exception ex) {
-				logger.trace("Exception from prevent-shutdown barrier", ex);
+				logger.trace("Exception from barrier", ex);
 			}
 		}
 	}

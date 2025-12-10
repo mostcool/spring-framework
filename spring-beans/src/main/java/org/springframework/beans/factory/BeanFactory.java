@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.springframework.beans.factory;
 import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.ResolvableType;
 
 /**
@@ -263,6 +264,22 @@ public interface BeanFactory {
 	 * @see ObjectProvider#orderedStream()
 	 */
 	<T> ObjectProvider<T> getBeanProvider(ResolvableType requiredType);
+
+	/**
+	 * Return a provider for the specified bean, allowing for lazy on-demand retrieval
+	 * of instances, including availability and uniqueness options. This variant allows
+	 * for specifying a generic type to match, similar to reflective injection points
+	 * with generic type declarations in method/constructor parameters.
+	 * <p>This is a variant of {@link #getBeanProvider(ResolvableType)} with a
+	 * captured generic type for type-safe retrieval, typically used inline:
+	 * {@code getBeanProvider(new ParameterizedTypeReference<>() {})} - and
+	 * effectively equivalent to {@code getBeanProvider(ResolvableType.forType(...))}.
+	 * @return a corresponding provider handle
+	 * @param requiredType a captured generic type that the bean must match
+	 * @since 7.0
+	 * @see #getBeanProvider(ResolvableType)
+	 */
+	<T> ObjectProvider<T> getBeanProvider(ParameterizedTypeReference<T> requiredType);
 
 	/**
 	 * Does this bean factory contain a bean definition or externally registered singleton

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import org.springframework.core.type.ClassMetadata;
  * {@link MetadataReader} implementation based on the {@link ClassFile} API.
  *
  * @author Brian Clozel
+ * @since 7.0
  */
 final class ClassFileMetadataReader implements MetadataReader {
 
@@ -50,6 +51,7 @@ final class ClassFileMetadataReader implements MetadataReader {
 			return ClassFile.of().parse(bytes);
 		}
 	}
+
 
 	@Override
 	public Resource getResource() {

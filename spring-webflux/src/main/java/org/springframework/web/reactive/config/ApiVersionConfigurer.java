@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,15 +22,24 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import org.jspecify.annotations.Nullable;
 
+import org.springframework.http.MediaType;
+import org.springframework.util.Assert;
 import org.springframework.web.accept.ApiVersionParser;
+import org.springframework.web.accept.InvalidApiVersionException;
 import org.springframework.web.accept.SemanticApiVersionParser;
+import org.springframework.web.reactive.accept.ApiVersionDeprecationHandler;
 import org.springframework.web.reactive.accept.ApiVersionResolver;
 import org.springframework.web.reactive.accept.ApiVersionStrategy;
 import org.springframework.web.reactive.accept.DefaultApiVersionStrategy;
+import org.springframework.web.reactive.accept.HeaderApiVersionResolver;
+import org.springframework.web.reactive.accept.MediaTypeParamApiVersionResolver;
 import org.springframework.web.reactive.accept.PathApiVersionResolver;
+import org.springframework.web.reactive.accept.QueryApiVersionResolver;
+import org.springframework.web.reactive.accept.StandardApiVersionDeprecationHandler;
 
 /**
  * Configure API versioning.
@@ -44,11 +53,17 @@ public class ApiVersionConfigurer {
 
 	private @Nullable ApiVersionParser<?> versionParser;
 
-	private boolean versionRequired = true;
+	private @Nullable Boolean versionRequired;
 
 	private @Nullable String defaultVersion;
 
 	private final Set<String> supportedVersions = new LinkedHashSet<>();
+
+	private boolean detectSupportedVersions = true;
+
+	private @Nullable Predicate<Comparable<?>> supportedVersionPredicate;
+
+	private @Nullable ApiVersionDeprecationHandler deprecationHandler;
 
 
 	/**
@@ -56,23 +71,37 @@ public class ApiVersionConfigurer {
 	 * @param headerName the header name to check
 	 */
 	public ApiVersionConfigurer useRequestHeader(String headerName) {
-		this.versionResolvers.add(exchange -> exchange.getRequest().getHeaders().getFirst(headerName));
+		this.versionResolvers.add(new HeaderApiVersionResolver(headerName));
 		return this;
 	}
 
 	/**
-	 * Add a resolver that extracts the API version from a request parameter.
+	 * Add a resolver that extracts the API version from a query string parameter.
 	 * @param paramName the parameter name to check
 	 */
-	public ApiVersionConfigurer useRequestParam(String paramName) {
-		this.versionResolvers.add(exchange -> exchange.getRequest().getQueryParams().getFirst(paramName));
+	public ApiVersionConfigurer useQueryParam(String paramName) {
+		this.versionResolvers.add(new QueryApiVersionResolver(paramName));
+		return this;
+	}
+
+	/**
+	 * Add resolver to extract the version from a media type parameter found in
+	 * the Accept or Content-Type headers.
+	 * @param compatibleMediaType the media type to extract the parameter from with
+	 * the match established via {@link MediaType#isCompatibleWith(MediaType)}
+	 * @param paramName the name of the parameter
+	 */
+	public ApiVersionConfigurer useMediaTypeParameter(MediaType compatibleMediaType, String paramName) {
+		this.versionResolvers.add(new MediaTypeParamApiVersionResolver(compatibleMediaType, paramName));
 		return this;
 	}
 
 	/**
 	 * Add a resolver that extracts the API version from a path segment.
+	 * <p>Note that this resolver never returns {@code null}, and therefore
+	 * cannot yield to other resolvers, see {@link org.springframework.web.accept.PathApiVersionResolver}.
 	 * @param index the index of the path segment to check; e.g. for URL's like
-	 * "/{version}/..." use index 0, for "/api/{version}/..." index 1.
+	 * {@code "/{version}/..."} use index 0, for {@code "/api/{version}/..."} index 1.
 	 */
 	public ApiVersionConfigurer usePathSegment(int index) {
 		this.versionResolvers.add(new PathApiVersionResolver(index));
@@ -125,32 +154,78 @@ public class ApiVersionConfigurer {
 	}
 
 	/**
-	 * Add to the list of supported versions to validate request versions against.
-	 * Request versions that are not supported result in
-	 * {@link org.springframework.web.accept.InvalidApiVersionException}.
-	 * <p>Note that the set of supported versions is populated from versions
-	 * listed in controller mappings. Therefore, typically you do not have to
-	 * manage this list except for the initial API version, when controller
-	 * don't have to have a version to start.
-	 * @param versions supported versions to add
+	 * Add to the list of supported versions to check against before raising
+	 * {@link InvalidApiVersionException} for unknown versions.
+	 * <p>By default, actual version values that appear in request mappings are
+	 * used for validation. Therefore, use of this method is optional. However,
+	 * if you prefer to use explicitly configured, supported versions only, then
+	 * set {@link #detectSupportedVersions} to {@code false}.
+	 * <p>Note that the initial API version, if not explicitly declared in any
+	 * request mappings, may need to be declared here instead as a supported
+	 * version.
+	 * @param versions supported version values to add
 	 */
 	public ApiVersionConfigurer addSupportedVersions(String... versions) {
 		Collections.addAll(this.supportedVersions, versions);
 		return this;
 	}
 
+	/**
+	 * Whether to use versions from mappings for supported version validation.
+	 * <p>By default, this is {@code true} in which case mapped versions are
+	 * considered supported versions. Set this to {@code false} if you want to
+	 * use only explicitly configured {@link #addSupportedVersions(String...)
+	 * supported versions}.
+	 * @param detect whether to use detected versions for validation
+	 */
+	public ApiVersionConfigurer detectSupportedVersions(boolean detect) {
+		this.detectSupportedVersions = detect;
+		return this;
+	}
+
+	/**
+	 * Provide a {@link Predicate} to perform supported version checks with, in
+	 * effect taking over the supported version check and superseding the
+	 * {@link #addSupportedVersions} and {@link #detectSupportedVersions}.
+	 * @param predicate the predicate to use
+	 */
+	public void setSupportedVersionPredicate(@Nullable Predicate<Comparable<?>> predicate) {
+		this.supportedVersionPredicate = predicate;
+	}
+
+	/**
+	 * Configure a handler to add handling for requests with a deprecated API
+	 * version. Typically, this involves sending hints and information about
+	 * the deprecation in response headers.
+	 * @param handler the handler to use
+	 * @see StandardApiVersionDeprecationHandler
+	 */
+	public ApiVersionConfigurer setDeprecationHandler(ApiVersionDeprecationHandler handler) {
+		this.deprecationHandler = handler;
+		return this;
+	}
+
 	protected @Nullable ApiVersionStrategy getApiVersionStrategy() {
+
 		if (this.versionResolvers.isEmpty()) {
+			Assert.state(isNotCustomized(), "API version config customized, but no ApiVersionResolver provided");
 			return null;
 		}
 
 		DefaultApiVersionStrategy strategy = new DefaultApiVersionStrategy(this.versionResolvers,
 				(this.versionParser != null ? this.versionParser : new SemanticApiVersionParser()),
-				this.versionRequired, this.defaultVersion);
+				this.versionRequired, this.defaultVersion,
+				this.detectSupportedVersions, this.supportedVersionPredicate,
+				this.deprecationHandler);
 
 		this.supportedVersions.forEach(strategy::addSupportedVersion);
 
 		return strategy;
+	}
+
+	private boolean isNotCustomized() {
+		return (this.versionParser == null && this.versionRequired == null &&
+				this.defaultVersion == null && this.supportedVersions.isEmpty());
 	}
 
 }

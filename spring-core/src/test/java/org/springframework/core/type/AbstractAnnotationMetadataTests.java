@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -162,6 +162,12 @@ public abstract class AbstractAnnotationMetadataTests {
 		}
 
 		@Test
+		void getSuperClassNameWhenPackageInfoReturnsNull() throws Exception {
+			Class<?> packageClass = Class.forName(getClass().getPackageName() + ".package-info");
+			assertThat(get(packageClass).getSuperClassName()).isNull();
+		}
+
+		@Test
 		void getInterfaceNamesWhenHasInterfacesReturnsNames() {
 			assertThat(get(TestSubclass.class).getInterfaceNames()).containsExactly(TestInterface.class.getName());
 			assertThat(get(TestSubInterface.class).getInterfaceNames()).containsExactly(TestInterface.class.getName());
@@ -176,6 +182,13 @@ public abstract class AbstractAnnotationMetadataTests {
 		void getMemberClassNamesWhenHasMemberClassesReturnsNames() {
 			assertThat(get(TestMemberClass.class).getMemberClassNames()).containsExactlyInAnyOrder(
 					TestMemberClass.TestMemberClassInnerClass.class.getName(), TestMemberClass.TestMemberClassInnerInterface.class.getName());
+		}
+
+		@Test
+		void getMemberClassNamesWhenHasNestedMemberClassesReturnsOnlyFirstLevel() {
+			assertThat(get(TestNestedMemberClass.class).getMemberClassNames()).containsOnly(
+					TestNestedMemberClass.TestMemberClassInnerClassA.class.getName(),
+					TestNestedMemberClass.TestMemberClassInnerClassB.class.getName());
 		}
 
 		@Test
@@ -210,6 +223,22 @@ public abstract class AbstractAnnotationMetadataTests {
 			}
 
 			interface TestMemberClassInnerInterface {
+			}
+
+		}
+
+		public static class TestNestedMemberClass {
+
+			public static class TestMemberClassInnerClassA {
+
+				public static class TestMemberClassInnerClassAA {
+
+				}
+
+			}
+
+			public static class TestMemberClassInnerClassB {
+
 			}
 
 		}
@@ -261,11 +290,11 @@ public abstract class AbstractAnnotationMetadataTests {
 		void getComplexAttributeTypesReturnsAll() {
 			MultiValueMap<String, Object> attributes =
 					get(WithComplexAttributeTypes.class).getAllAnnotationAttributes(ComplexAttributes.class.getName());
-			assertThat(attributes).containsOnlyKeys("names", "count", "type", "subAnnotation");
+			assertThat(attributes).containsOnlyKeys("names", "count", "types", "subAnnotation");
 			assertThat(attributes.get("names")).hasSize(1);
 			assertThat(attributes.get("names").get(0)).isEqualTo(new String[]{"first", "second"});
-			assertThat(attributes.get("count")).containsExactlyInAnyOrder(TestEnum.ONE);
-			assertThat(attributes.get("type")).containsExactlyInAnyOrder(TestEnum.class);
+			assertThat(attributes.get("count").get(0)).isEqualTo(new TestEnum[]{TestEnum.ONE, TestEnum.TWO});
+			assertThat(attributes.get("types").get(0)).isEqualTo(new Class[]{TestEnum.class});
 			assertThat(attributes.get("subAnnotation")).hasSize(1);
 		}
 
@@ -277,6 +306,14 @@ public abstract class AbstractAnnotationMetadataTests {
 			int[] values = {42};
 			assertThat(attributes.get("mv")).hasSize(1);
 			assertThat(attributes.get("mv").get(0)).isEqualTo(values);
+		}
+
+		@Test
+		void getAnnotationAttributeIntType() {
+			MultiValueMap<String, Object> attributes =
+					get(WithIntType.class).getAllAnnotationAttributes(ComplexAttributes.class.getName());
+			assertThat(attributes).containsOnlyKeys("names", "count", "types", "subAnnotation");
+			assertThat(attributes.get("types").get(0)).isEqualTo(new Class[]{int.class});
 		}
 
 		@Test
@@ -416,10 +453,17 @@ public abstract class AbstractAnnotationMetadataTests {
 
 		}
 
-		@ComplexAttributes(names = {"first", "second"}, count = TestEnum.ONE,
-				type = TestEnum.class, subAnnotation = @SubAnnotation(name="spring"))
+
+		@ComplexAttributes(names = {"first", "second"}, count = {TestEnum.ONE, TestEnum.TWO},
+				types = {TestEnum.class}, subAnnotation = @SubAnnotation(name="spring"))
 		@Metadata(mv = {42})
 		public static class WithComplexAttributeTypes {
+		}
+
+		@ComplexAttributes(names = "void", count = TestEnum.ONE, types = int.class,
+				subAnnotation = @SubAnnotation(name="spring"))
+		public static class WithIntType {
+
 		}
 
 		@Retention(RetentionPolicy.RUNTIME)
@@ -427,9 +471,9 @@ public abstract class AbstractAnnotationMetadataTests {
 
 			String[] names();
 
-			TestEnum count();
+			TestEnum[] count();
 
-			Class<?> type();
+			Class<?>[] types();
 
 			SubAnnotation subAnnotation();
 		}
@@ -440,7 +484,15 @@ public abstract class AbstractAnnotationMetadataTests {
 		}
 
 		public enum TestEnum {
-			ONE, TWO, THREE
+			ONE {
+
+			},
+			TWO {
+
+			},
+			THREE {
+
+			}
 		}
 
 		@RepeatableAnnotation(name = "first")

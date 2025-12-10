@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -194,7 +194,7 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 
 	private boolean virtualThreads = false;
 
-	private BackOff backOff = new FixedBackOff(DEFAULT_RECOVERY_INTERVAL, Long.MAX_VALUE);
+	private BackOff backOff = new FixedBackOff(DEFAULT_RECOVERY_INTERVAL);
 
 	private int cacheLevel = CACHE_AUTO;
 
@@ -278,8 +278,8 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 	 * between recovery attempts. If the {@link BackOffExecution} implementation
 	 * returns {@link BackOffExecution#STOP}, this listener container will not further
 	 * attempt to recover.
-	 * <p>The {@link #setRecoveryInterval(long) recovery interval} is ignored
-	 * when this property is set.
+	 * <p>Note that setting the {@linkplain #setRecoveryInterval(long) recovery
+	 * interval} overrides this property.
 	 * @since 4.1
 	 */
 	public void setBackOff(BackOff backOff) {
@@ -288,15 +288,17 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 
 	/**
 	 * Specify the interval between recovery attempts, in <b>milliseconds</b>.
-	 * The default is 5000 ms, that is, 5 seconds. This is a convenience method
-	 * to create a {@link FixedBackOff} with the specified interval.
-	 * <p>For more recovery options, consider specifying a {@link BackOff}
-	 * instance instead.
+	 * <p>The default is 5000 ms, that is, 5 seconds.
+	 * <p>This is a convenience method to create a {@link FixedBackOff} with the
+	 * specified interval. For more recovery options, consider specifying a
+	 * {@link #setBackOff(BackOff) BackOff} instance instead. Note, however, that
+	 * explicitly setting the {@link #setBackOff(BackOff) BackOff} overrides this
+	 * property.
 	 * @see #setBackOff(BackOff)
 	 * @see #handleListenerSetupFailure
 	 */
 	public void setRecoveryInterval(long recoveryInterval) {
-		this.backOff = new FixedBackOff(recoveryInterval, Long.MAX_VALUE);
+		this.backOff = new FixedBackOff(recoveryInterval);
 	}
 
 	/**
@@ -755,10 +757,8 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 				}
 				waitCount++;
 			}
-			// Clear remaining scheduled invokers, possibly left over as paused tasks
-			for (AsyncMessageListenerInvoker scheduledInvoker : this.scheduledInvokers) {
-				scheduledInvoker.clearResources();
-			}
+			// Clear remaining scheduled invokers, possibly left over as paused tasks.
+			clearResourcesInScheduledInvokers();
 			this.scheduledInvokers.clear();
 		}
 		catch (InterruptedException ex) {
@@ -905,6 +905,15 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 		if (rescheduleTaskIfNecessary(invoker)) {
 			// This should always be true, since we're only calling this when active.
 			this.scheduledInvokers.add(invoker);
+		}
+	}
+
+	/**
+	 * Clear resources in scheduled invokers, even in case of paused tasks.
+	 */
+	private void clearResourcesInScheduledInvokers() {
+		for (AsyncMessageListenerInvoker scheduledInvoker : this.scheduledInvokers) {
+			scheduledInvoker.clearResources();
 		}
 	}
 
@@ -1425,6 +1434,7 @@ public class DefaultMessageListenerContainer extends AbstractPollingMessageListe
 			if (activeInvokerCount == 0) {
 				if (!isRunning()) {
 					// Proactively release shared Connection when stopped.
+					clearResourcesInScheduledInvokers();
 					releaseSharedConnection();
 				}
 				if (stopCallback != null) {

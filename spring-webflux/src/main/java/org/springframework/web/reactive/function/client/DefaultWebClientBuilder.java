@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2025 the original author or authors.
+ * Copyright 2002-present the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,17 +55,19 @@ import org.springframework.web.util.UriBuilderFactory;
  */
 final class DefaultWebClientBuilder implements WebClient.Builder {
 
-	private static final boolean reactorNettyClientPresent;
+	private static final boolean REACTOR_NETTY_CLIENT_PRESENT;
 
-	private static final boolean jettyClientPresent;
+	private static final boolean JETTY_CLIENT_PRESENT;
 
-	private static final boolean httpComponentsClientPresent;
+	private static final boolean HTTP_COMPONENTS_CLIENT_PRESENT;
 
 	static {
 		ClassLoader loader = DefaultWebClientBuilder.class.getClassLoader();
-		reactorNettyClientPresent = ClassUtils.isPresent("reactor.netty.http.client.HttpClient", loader);
-		jettyClientPresent = ClassUtils.isPresent("org.eclipse.jetty.client.HttpClient", loader);
-		httpComponentsClientPresent =
+		REACTOR_NETTY_CLIENT_PRESENT = ClassUtils.isPresent("reactor.netty.http.client.HttpClient", loader);
+		JETTY_CLIENT_PRESENT =
+				ClassUtils.isPresent("org.eclipse.jetty.client.HttpClient", loader) &&
+						ClassUtils.isPresent("org.eclipse.jetty.reactive.client.ReactiveRequest", loader);
+		HTTP_COMPONENTS_CLIENT_PRESENT =
 				ClassUtils.isPresent("org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient", loader) &&
 						ClassUtils.isPresent("org.apache.hc.core5.reactive.ReactiveDataConsumer", loader);
 	}
@@ -80,6 +82,8 @@ final class DefaultWebClientBuilder implements WebClient.Builder {
 	private @Nullable HttpHeaders defaultHeaders;
 
 	private @Nullable MultiValueMap<String, String> defaultCookies;
+
+	private @Nullable Object defaultApiVersion;
 
 	private @Nullable ApiVersionInserter apiVersionInserter;
 
@@ -122,6 +126,8 @@ final class DefaultWebClientBuilder implements WebClient.Builder {
 		}
 
 		this.defaultCookies = (other.defaultCookies != null ? new LinkedMultiValueMap<>(other.defaultCookies) : null);
+
+		this.defaultApiVersion = other.defaultApiVersion;
 		this.apiVersionInserter = other.apiVersionInserter;
 
 		this.defaultRequest = other.defaultRequest;
@@ -194,9 +200,14 @@ final class DefaultWebClientBuilder implements WebClient.Builder {
 		return this.defaultCookies;
 	}
 
+	@Override
+	public WebClient.Builder defaultApiVersion(Object version) {
+		this.defaultApiVersion = version;
+		return this;
+	}
 
 	@Override
-	public WebClient.Builder apiVersionInserter(ApiVersionInserter apiVersionInserter) {
+	public WebClient.Builder apiVersionInserter(@Nullable ApiVersionInserter apiVersionInserter) {
 		this.apiVersionInserter = apiVersionInserter;
 		return this;
 	}
@@ -308,7 +319,7 @@ final class DefaultWebClientBuilder implements WebClient.Builder {
 		return new DefaultWebClient(
 				exchange, filterFunctions,
 				initUriBuilderFactory(), defaultHeaders, defaultCookies,
-				this.apiVersionInserter,
+				this.defaultApiVersion, this.apiVersionInserter,
 				this.defaultRequest,
 				this.statusHandlers,
 				this.observationRegistry, this.observationConvention,
@@ -316,13 +327,13 @@ final class DefaultWebClientBuilder implements WebClient.Builder {
 	}
 
 	private ClientHttpConnector initConnector() {
-		if (reactorNettyClientPresent) {
+		if (REACTOR_NETTY_CLIENT_PRESENT) {
 			return new ReactorClientHttpConnector();
 		}
-		else if (jettyClientPresent) {
+		else if (JETTY_CLIENT_PRESENT) {
 			return new JettyClientHttpConnector();
 		}
-		else if (httpComponentsClientPresent) {
+		else if (HTTP_COMPONENTS_CLIENT_PRESENT) {
 			return new HttpComponentsClientHttpConnector();
 		}
 		else {
