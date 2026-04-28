@@ -64,20 +64,16 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 	private static final Object[] EMPTY_ARGS = new Object[0];
 
-	private static final Class<?>[] EMPTY_GROUPS = new Class<?>[0];
-
 	private static final boolean KOTLIN_REFLECT_PRESENT = KotlinDetector.isKotlinReflectPresent();
 
 
 	private HandlerMethodArgumentResolverComposite resolvers = new HandlerMethodArgumentResolverComposite();
 
-	private ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
+	private ParameterNameDiscoverer parameterNameDiscoverer = DefaultParameterNameDiscoverer.getSharedInstance();
 
 	private @Nullable WebDataBinderFactory dataBinderFactory;
 
 	private @Nullable MethodValidator methodValidator;
-
-	private Class<?>[] validationGroups = EMPTY_GROUPS;
 
 
 	/**
@@ -150,8 +146,6 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	 */
 	public void setMethodValidator(@Nullable MethodValidator methodValidator) {
 		this.methodValidator = methodValidator;
-		this.validationGroups = (methodValidator != null ?
-				methodValidator.determineValidationGroups(getBean(), getBridgedMethod()) : EMPTY_GROUPS);
 	}
 
 
@@ -184,14 +178,14 @@ public class InvocableHandlerMethod extends HandlerMethod {
 
 		if (shouldValidateArguments() && this.methodValidator != null) {
 			this.methodValidator.applyArgumentValidation(
-					getBean(), getBridgedMethod(), getMethodParameters(), args, this.validationGroups);
+					getBean(), getBridgedMethod(), getMethodParameters(), args, getValidationGroups());
 		}
 
 		Object returnValue = doInvoke(args);
 
 		if (shouldValidateReturnValue() && this.methodValidator != null) {
 			this.methodValidator.applyReturnValueValidation(
-					getBean(), getBridgedMethod(), getReturnType(), returnValue, this.validationGroups);
+					getBean(), getBridgedMethod(), getReturnType(), returnValue, getValidationGroups());
 		}
 
 		return returnValue;
@@ -322,7 +316,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 						Object arg = args[index];
 						if (!(parameter.isOptional() && arg == null)) {
 							KType type = parameter.getType();
-							if (!(type.isMarkedNullable() && arg == null) &&
+							if (!type.isMarkedNullable() &&
 									type.getClassifier() instanceof KClass<?> kClass &&
 									KotlinDetector.isInlineClass(JvmClassMappingKt.getJavaClass(kClass))) {
 								arg = box(kClass, arg);
@@ -343,7 +337,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 		private static Object box(KClass<?> kClass, @Nullable Object arg) {
 			KFunction<?> constructor = Objects.requireNonNull(KClasses.getPrimaryConstructor(kClass));
 			KType type = constructor.getParameters().get(0).getType();
-			if (!(type.isMarkedNullable() && arg == null) &&
+			if (!type.isMarkedNullable() &&
 					type.getClassifier() instanceof KClass<?> parameterClass &&
 					KotlinDetector.isInlineClass(JvmClassMappingKt.getJavaClass(parameterClass))) {
 				arg = box(parameterClass, arg);

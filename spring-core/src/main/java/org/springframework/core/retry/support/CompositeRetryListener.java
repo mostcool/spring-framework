@@ -24,6 +24,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.core.retry.RetryException;
 import org.springframework.core.retry.RetryListener;
 import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryState;
 import org.springframework.core.retry.Retryable;
 import org.springframework.util.Assert;
 
@@ -71,8 +72,13 @@ public class CompositeRetryListener implements RetryListener {
 
 
 	@Override
-	public void beforeRetry(RetryPolicy retryPolicy, Retryable<?> retryable) {
-		this.listeners.forEach(retryListener -> retryListener.beforeRetry(retryPolicy, retryable));
+	public void onRetryableExecution(RetryPolicy retryPolicy, Retryable<?> retryable, RetryState retryState) {
+		this.listeners.forEach(listener -> listener.onRetryableExecution(retryPolicy, retryable, retryState));
+	}
+
+	@Override
+	public void beforeRetry(RetryPolicy retryPolicy, Retryable<?> retryable, RetryState retryState) {
+		this.listeners.forEach(retryListener -> retryListener.beforeRetry(retryPolicy, retryable, retryState));
 	}
 
 	@Override

@@ -54,12 +54,23 @@ class CompositeRetryListenerTests {
 	}
 
 	@Test
-	void beforeRetry() {
-		compositeRetryListener.beforeRetry(retryPolicy, retryable);
+	void onRetryableExecution() {
+		RetryException exception = new RetryException("", new Exception());
+		compositeRetryListener.onRetryableExecution(retryPolicy, retryable, exception);
 
-		verify(listener1).beforeRetry(retryPolicy, retryable);
-		verify(listener2).beforeRetry(retryPolicy, retryable);
-		verify(listener3).beforeRetry(retryPolicy, retryable);
+		verify(listener1).onRetryableExecution(retryPolicy, retryable, exception);
+		verify(listener2).onRetryableExecution(retryPolicy, retryable, exception);
+		verify(listener3).onRetryableExecution(retryPolicy, retryable, exception);
+	}
+
+	@Test
+	void beforeRetry() {
+		RetryException exception = new RetryException("", new Exception());
+		compositeRetryListener.beforeRetry(retryPolicy, retryable, exception);
+
+		verify(listener1).beforeRetry(retryPolicy, retryable, exception);
+		verify(listener2).beforeRetry(retryPolicy, retryable, exception);
+		verify(listener3).beforeRetry(retryPolicy, retryable, exception);
 	}
 
 	@Test

@@ -26,7 +26,7 @@ import org.springframework.core.log.LogDelegateFactory;
 import org.springframework.util.Assert;
 
 /**
- * Parser for URI's based on RFC 3986 syntax.
+ * Parser for URIs based on RFC 3986 syntax.
  *
  * @author Rossen Stoyanchev
  * @since 6.2
@@ -556,7 +556,7 @@ abstract class RfcUriParser {
 		}
 
 		public void captureFragmentIfNotEmpty() {
-			if (this.index > this.componentIndex + 1) {
+			if (this.index > this.componentIndex) {
 				this.fragment = captureComponent("fragment");
 			}
 		}
