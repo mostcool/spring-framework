@@ -47,10 +47,12 @@ import org.springframework.util.MultiValueMap;
  *
  * @author Brian Clozel
  * @author Arjen Poutsma
+ * @since 7.1
  */
 final class PartGenerator implements MultipartParser.PartListener {
 
 	private static final Log logger = LogFactory.getLog(PartGenerator.class);
+
 
 	private final MultiValueMap<String, Part> parts = new LinkedMultiValueMap<>();
 
@@ -94,8 +96,8 @@ final class PartGenerator implements MultipartParser.PartListener {
 
 	private static boolean isFormField(HttpHeaders headers) {
 		MediaType contentType = headers.getContentType();
-		return (contentType == null || MediaType.TEXT_PLAIN.equalsTypeAndSubtype(contentType)) &&
-				headers.getContentDisposition().getFilename() == null;
+		return ((contentType == null || MediaType.TEXT_PLAIN.equalsTypeAndSubtype(contentType)) &&
+				headers.getContentDisposition().getFilename() == null);
 	}
 
 	@Override
@@ -110,15 +112,16 @@ final class PartGenerator implements MultipartParser.PartListener {
 	}
 
 	void deleteParts() {
-		try {
-			for (List<Part> partList : this.parts.values()) {
-				for (Part part : partList) {
+		this.state.dispose();
+		for (List<Part> parts : this.parts.values()) {
+			for (Part part : parts) {
+				try {
 					part.delete();
 				}
+				catch (IOException ex) {
+					// ignored
+				}
 			}
-		}
-		catch (IOException ex) {
-			// ignored
 		}
 	}
 
@@ -130,9 +133,8 @@ final class PartGenerator implements MultipartParser.PartListener {
 	}
 
 	@Override
-	public void onError(Throwable error) {
+	public void onError(Throwable ex) {
 		deleteParts();
-		throw new HttpMessageConversionException("Cannot decode multipart body", error);
 	}
 
 	void addPart(Part part) {
@@ -147,6 +149,7 @@ final class PartGenerator implements MultipartParser.PartListener {
 			throw new HttpMessageConversionException("Part #" + this.partCount + " is unnamed", exc);
 		}
 	}
+
 
 	/**
 	 * Represents the internal state of the {@link PartGenerator} for creating a single {@link Part}.
@@ -164,11 +167,18 @@ final class PartGenerator implements MultipartParser.PartListener {
 	private interface State {
 
 		/**
-		 * Invoked when a {@link MultipartParser.PartListener#onBody(DataBuffer, boolean)} is received.
+		 * Invoked when the parser receives additional data.
 		 */
 		void onBody(DataBuffer dataBuffer, boolean last);
 
+		/**
+		 * Clean up resources.
+		 */
+		default void dispose() {
+		}
+
 	}
+
 
 	/**
 	 * The initial state of the creator. Throws an exception for {@link #onBody(DataBuffer, boolean)}.
@@ -266,23 +276,26 @@ final class PartGenerator implements MultipartParser.PartListener {
 		@Override
 		public void onBody(DataBuffer dataBuffer, boolean last) {
 			this.byteCount += dataBuffer.readableByteCount();
-			if (PartGenerator.this.maxInMemorySize == -1 ||
-					this.byteCount <= PartGenerator.this.maxInMemorySize) {
-				this.content.add(dataBuffer);
-				if (last) {
-					emitMemoryPart();
-				}
-			}
-			else {
+			if (isMaxInMemorySizeExceeded()) {
 				switchToFile(dataBuffer, last);
+				return;
+			}
+			this.content.add(dataBuffer);
+			if (last) {
+				emitMemoryPart();
 			}
 		}
 
+		private boolean isMaxInMemorySizeExceeded() {
+			return (PartGenerator.this.maxInMemorySize != -1 &&
+					this.byteCount > PartGenerator.this.maxInMemorySize);
+		}
+
 		private void switchToFile(DataBuffer current, boolean last) {
-			FileState newState = new FileState(this.headers, PartGenerator.this.fileStorageDirectory);
-			this.content.forEach(newState::writeBuffer);
-			newState.onBody(current, last);
-			PartGenerator.this.state = newState;
+			FileState fileState = new FileState(this.headers, PartGenerator.this.fileStorageDirectory);
+			this.content.forEach(fileState::writeBuffer);
+			fileState.onBody(current, last);
+			PartGenerator.this.state = fileState;
 		}
 
 		private void emitMemoryPart() {
@@ -298,6 +311,11 @@ final class PartGenerator implements MultipartParser.PartListener {
 			DefaultDataBuffer content = DefaultDataBufferFactory.sharedInstance.wrap(bytes);
 			Part part = DefaultParts.part(this.headers, content);
 			PartGenerator.this.addPart(part);
+		}
+
+		@Override
+		public void dispose() {
+			this.content.forEach(DataBufferUtils::release);
 		}
 
 		@Override
@@ -321,33 +339,10 @@ final class PartGenerator implements MultipartParser.PartListener {
 
 		private long byteCount;
 
-
 		public FileState(HttpHeaders headers, Path folder) {
 			this.headers = headers;
 			this.file = createFile(folder);
 			this.outputStream = createOutputStream(this.file);
-		}
-
-		@Override
-		public void onBody(DataBuffer dataBuffer, boolean last) {
-			this.byteCount += dataBuffer.readableByteCount();
-			if (PartGenerator.this.maxDiskUsagePerPart == -1 || this.byteCount <= PartGenerator.this.maxDiskUsagePerPart) {
-				writeBuffer(dataBuffer);
-				if (last) {
-					Part part = DefaultParts.part(this.headers, this.file);
-					PartGenerator.this.addPart(part);
-				}
-			}
-			else {
-				try {
-					this.outputStream.close();
-				}
-				catch (IOException exc) {
-					// ignored
-				}
-				throw new HttpMessageConversionException("Part exceeded the disk usage limit of " +
-						PartGenerator.this.maxDiskUsagePerPart + " bytes");
-			}
 		}
 
 		private Path createFile(Path directory) {
@@ -372,6 +367,36 @@ final class PartGenerator implements MultipartParser.PartListener {
 			}
 		}
 
+		@Override
+		public void onBody(DataBuffer dataBuffer, boolean last) {
+			this.byteCount += dataBuffer.readableByteCount();
+			if (isMaxDiskUsagePerPartExceeded()) {
+				closeOutputStream();
+				throw new HttpMessageConversionException("Part exceeded " +
+						"the disk usage limit of " + PartGenerator.this.maxDiskUsagePerPart + " bytes");
+			}
+			writeBuffer(dataBuffer);
+			if (last) {
+				Part part = DefaultParts.part(this.headers, this.file);
+				PartGenerator.this.addPart(part);
+				closeOutputStream();
+			}
+		}
+
+		private boolean isMaxDiskUsagePerPartExceeded() {
+			return (PartGenerator.this.maxDiskUsagePerPart != -1 &&
+					this.byteCount > PartGenerator.this.maxDiskUsagePerPart);
+		}
+
+		private void closeOutputStream() {
+			try {
+				this.outputStream.close();
+			}
+			catch (IOException exc) {
+				// ignored
+			}
+		}
+
 		private void writeBuffer(DataBuffer dataBuffer) {
 			try (InputStream in = dataBuffer.asInputStream()) {
 				in.transferTo(this.outputStream);
@@ -382,6 +407,17 @@ final class PartGenerator implements MultipartParser.PartListener {
 			}
 			finally {
 				DataBufferUtils.release(dataBuffer);
+			}
+		}
+
+		@Override
+		public void dispose() {
+			closeOutputStream();
+			try {
+				Files.deleteIfExists(this.file);
+			}
+			catch (IOException ex) {
+				// ignored
 			}
 		}
 
